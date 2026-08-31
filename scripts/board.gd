@@ -1,8 +1,8 @@
 extends Node2D
 
-## One "game": an 8x8 swap-3 board played against a running clock, mirroring a
-## single game in the team's season. Score climbs until time runs out, then
-## it's compared to target_score (the opponent's score) to decide win/loss.
+## One "game": an 8x8 swap-3 board played against a running clock, racing a
+## live opponent score that climbs over the course of the game. Beat their
+## live score when time runs out (or hit a Walk-off Win first) to win.
 ##
 ## Tiles never move as nodes — we swap/shift the `gem_type`/`special_type`
 ## values stored on each fixed-position tile, which keeps match/gravity logic
@@ -33,22 +33,42 @@ const MAX_CHAIN_MULTIPLIER := 3
 # 10s Rally window itself) resumes.
 const RALLY_ANNOUNCE_DURATION := 2.0
 
+# The opponent's live score climbs toward this by the time the clock runs
+# out (with some randomness in pacing), rather than sitting at a fixed number
+# the whole game.
+const OPPONENT_TICK_MIN := 3.0
+const OPPONENT_TICK_MAX := 7.0
+
+# Consecutive successful swaps build a small bonus on top of everything else;
+# a whiffed swap or a few idle seconds resets it.
+const HOT_HAND_DECAY_IDLE_SECONDS := 4.0
+const HOT_HAND_MAX_STREAK := 5
+const HOT_HAND_BONUS_PER_STACK := 0.1
+
+# Walk-off celebration: real-world seconds the slow-motion beat lasts,
+# regardless of the slow-mo time scale itself.
+const WALKOFF_SLOWMO_SCALE := 0.4
+const WALKOFF_CELEBRATION_SECONDS := 4.0
+
 const TileScene := preload("res://scenes/tile.tscn")
 
 @onready var score_label: Label = $ScoreLabel
-@onready var target_label: Label = $TargetLabel
+@onready var opponent_label: Label = $TargetLabel
 @onready var time_label: Label = $TimeLabel
 @onready var big_play_label: Label = $BigPlayLabel
+@onready var hot_hand_label: Label = $HotHandLabel
 @onready var tiles_container: Node2D = $TilesContainer
 @onready var rally_bar: ProgressBar = $RallyBar
 @onready var rally_status_label: Label = $RallyStatusLabel
 @onready var rally_announcement: Control = $RallyAnnouncement
 @onready var rally_announce_label: Label = $RallyAnnouncement/AnnounceLabel
+@onready var walkoff_label: Label = $RallyAnnouncement/WalkoffLabel
 @onready var fireworks_layer: Node2D = $RallyAnnouncement/FireworksLayer
 @onready var rally_audio: AudioStreamPlayer = $RallyAnnouncement/RallyAudio
 @onready var end_panel: Panel = $EndPanel
 @onready var end_title_label: Label = $EndPanel/EndTitleLabel
 @onready var final_score_label: Label = $EndPanel/FinalScoreLabel
+@onready var stats_label: Label = $EndPanel/StatsLabel
 @onready var play_again_button: Button = $EndPanel/PlayAgainButton
 
 var grid: Array = [] # grid[x][y] -> Tile node
@@ -59,8 +79,9 @@ var game_over := false
 var score := 0
 
 # Placeholder for now; a SeasonManager will later pass this in per-game,
-# rising each season/rival/playoff instead of being fixed here.
-var target_score := 3000
+# rising each season/rival/playoff instead of being fixed here. This is what
+# the opponent's live score climbs toward, not a fixed win threshold itself.
+var target_score := 5000
 
 var time_left := SESSION_SECONDS
 var rally_meter := 0.0
@@ -68,16 +89,32 @@ var rally_time_left := 0.0
 var time_up_handled := false
 var final_move_active := false
 
+var opponent_score := 0
+var opponent_tick_timer := 0.0
+var opponent_next_tick := 0.0
+
+var hot_hand_streak := 0
+var hot_hand_idle_timer := 0.0
+
+var stat_doubles := 0
+var stat_triples := 0
+var stat_home_runs := 0
+var stat_grand_slams := 0
+var stat_mvp_blasts := 0
+var stat_longest_cascade := 0
+
 
 func _ready() -> void:
 	randomize()
 	_build_board()
-	target_label.text = "Target: %d" % target_score
+	opponent_label.text = "Opponent: %d" % opponent_score
 	_update_time_label()
 	rally_bar.max_value = RALLY_METER_MAX
 	rally_bar.value = 0.0
 	rally_status_label.visible = false
 	rally_announcement.visible = false
+	hot_hand_label.visible = false
+	opponent_next_tick = randf_range(OPPONENT_TICK_MIN, OPPONENT_TICK_MAX)
 
 	var generator := AudioStreamGenerator.new()
 	generator.mix_rate = 44100.0
@@ -98,6 +135,17 @@ func _process(delta: float) -> void:
 		time_left = max(time_left - delta, 0.0)
 		_update_time_label()
 
+		opponent_tick_timer += delta
+		if opponent_tick_timer >= opponent_next_tick:
+			opponent_tick_timer = 0.0
+			opponent_next_tick = randf_range(OPPONENT_TICK_MIN, OPPONENT_TICK_MAX)
+			_opponent_scores()
+
+		hot_hand_idle_timer += delta
+		if hot_hand_idle_timer >= HOT_HAND_DECAY_IDLE_SECONDS and hot_hand_streak > 0:
+			hot_hand_streak = 0
+			_update_hot_hand_label()
+
 	if time_left <= 0.0 and not is_busy and not time_up_handled:
 		time_up_handled = true
 		_handle_time_up()
@@ -107,6 +155,18 @@ func _process(delta: float) -> void:
 		rally_status_label.text = "RALLY! x%d (%ds)" % [RALLY_MULTIPLIER, ceil(rally_time_left)]
 		if rally_time_left <= 0.0:
 			rally_status_label.visible = false
+
+
+## The opponent's score climbs in irregular bursts rather than a smooth ramp,
+## generally tracking toward target_score by the time the clock runs out —
+## it's meant to feel like a live scoreboard, not a fixed number to clear.
+func _opponent_scores() -> void:
+	var time_fraction: float = clamp((SESSION_SECONDS - time_left) / SESSION_SECONDS, 0.0, 1.0)
+	var expected: float = target_score * time_fraction
+	var deficit: float = max(expected - opponent_score, 0.0)
+	var gain: int = int(max(20.0, deficit * randf_range(0.6, 1.4)))
+	opponent_score += gain
+	opponent_label.text = "Opponent: %d" % opponent_score
 
 
 func _update_time_label() -> void:
@@ -120,11 +180,13 @@ func _update_time_label() -> void:
 ## Bungled/no-match swap attempts during this window just revert as usual and
 ## don't burn the chance; only a swap that actually resolves ends the game.
 func _handle_time_up() -> void:
-	if score >= target_score:
+	if score >= opponent_score:
 		_end_game()
 		return
 
 	is_paused = true
+	rally_announce_label.visible = true
+	walkoff_label.visible = false
 	rally_announce_label.text = "FINAL CHANCE!\nOne swap to win it!"
 	rally_announcement.visible = true
 	await get_tree().create_timer(2.0).timeout
@@ -138,9 +200,12 @@ func _handle_time_up() -> void:
 
 func _end_game() -> void:
 	game_over = true
-	var did_win := score >= target_score
+	var did_win := score >= opponent_score
 	end_title_label.text = "YOU WIN!" if did_win else "GAME OVER"
-	final_score_label.text = "Final Score: %d   Target: %d" % [score, target_score]
+	final_score_label.text = "Final Score: %d   Opponent: %d" % [score, opponent_score]
+	stats_label.text = "Doubles: %d   Triples: %d   Home Runs: %d\nGrand Slams: %d   MVP Blasts: %d   Longest Cascade: %d" % [
+		stat_doubles, stat_triples, stat_home_runs, stat_grand_slams, stat_mvp_blasts, stat_longest_cascade
+	]
 	end_panel.visible = true
 
 
@@ -209,7 +274,8 @@ func _is_adjacent(a: Vector2i, b: Vector2i) -> bool:
 ## no ordinary color-match, which is what makes these feel deliberate rather
 ## than incidental. An MVP Ball (color bomb) additionally targets whichever
 ## gem color it's swapped into (or clears the whole board if swapped with
-## another MVP Ball).
+## another MVP Ball). A successful swap builds the Hot Hand streak; a whiff
+## resets it.
 func _try_swap(a: Vector2i, b: Vector2i) -> void:
 	is_busy = true
 	_swap_tiles(a, b)
@@ -229,16 +295,29 @@ func _try_swap(a: Vector2i, b: Vector2i) -> void:
 	if match_data.positions.is_empty():
 		await get_tree().create_timer(0.15).timeout
 		_swap_tiles(a, b) # no match and no special activated, revert
+		hot_hand_streak = 0
+		_update_hot_hand_label()
 		is_busy = false
 	else:
-		await _resolve_matches(match_data, forced_label)
+		hot_hand_streak = min(hot_hand_streak + 1, HOT_HAND_MAX_STREAK)
+		hot_hand_idle_timer = 0.0
+		_update_hot_hand_label()
+		var hot_hand_multiplier: float = 1.0 + HOT_HAND_BONUS_PER_STACK * hot_hand_streak
+
+		await _resolve_matches(match_data, forced_label, hot_hand_multiplier)
 		is_busy = false
 
-		if final_move_active:
+		if final_move_active and not game_over:
 			final_move_active = false
 			_end_game()
 		elif not game_over and not _has_valid_move():
 			await _reshuffle_board()
+
+
+func _update_hot_hand_label() -> void:
+	hot_hand_label.visible = hot_hand_streak >= 2
+	if hot_hand_streak >= 2:
+		hot_hand_label.text = "HOT HAND x%d" % hot_hand_streak
 
 
 func _trigger_color_bomb(bomb_pos: Vector2i, partner_pos: Vector2i, positions: Dictionary) -> void:
@@ -324,7 +403,10 @@ func _make_run(run_len: int, orientation: String, start_x: int, start_y: int, po
 ## scales automatically with the bigger clear. `forced_label` overrides the
 ## first step's callout — used for a color bomb's own activation, which is
 ## a bigger event than whatever ordinary tier it happens to coincide with.
-func _resolve_matches(match_data: Dictionary, forced_label: String = "") -> void:
+## If a Home Run, Grand Slam Rally, or MVP Blast is what newly pushes the
+## score past the opponent's current live score, that's a Walk-off Win and
+## ends the game immediately instead of continuing to chain further.
+func _resolve_matches(match_data: Dictionary, forced_label: String = "", hot_hand_multiplier: float = 1.0) -> void:
 	var chain_count := 1
 
 	while not match_data.positions.is_empty():
@@ -376,12 +458,20 @@ func _resolve_matches(match_data: Dictionary, forced_label: String = "") -> void
 		if chain_count == 1 and forced_label != "":
 			event_label = forced_label
 
+		match event_label:
+			"DOUBLE!": stat_doubles += 1
+			"TRIPLE!": stat_triples += 1
+			"HOME RUN!": stat_home_runs += 1
+			"MVP BLAST!": stat_mvp_blasts += 1
+		stat_longest_cascade = max(stat_longest_cascade, chain_count)
+
 		if spawn_pos != null:
 			positions.erase(spawn_pos)
 
 		var chain_multiplier: int = min(chain_count, MAX_CHAIN_MULTIPLIER)
-		var base_points: int = BASE_POINTS * positions.size() * tier_multiplier * chain_multiplier
+		var base_points: int = int(BASE_POINTS * positions.size() * tier_multiplier * chain_multiplier * hot_hand_multiplier)
 		var rally_active := rally_time_left > 0.0
+		var score_before_step := score
 		score += base_points * (RALLY_MULTIPLIER if rally_active else 1)
 		score_label.text = "Score: %d" % score
 
@@ -392,7 +482,10 @@ func _resolve_matches(match_data: Dictionary, forced_label: String = "") -> void
 		if event_label != "":
 			_show_big_play(event_label)
 
+		var rally_just_started := false
 		if not rally_active and rally_meter >= RALLY_METER_MAX:
+			rally_just_started = true
+			stat_grand_slams += 1
 			await _start_rally()
 
 		for pos in positions:
@@ -404,6 +497,11 @@ func _resolve_matches(match_data: Dictionary, forced_label: String = "") -> void
 
 		_apply_gravity(positions)
 		await get_tree().create_timer(0.1).timeout
+
+		var is_walkoff_event := event_label == "HOME RUN!" or event_label == "MVP BLAST!" or rally_just_started
+		if is_walkoff_event and score_before_step < opponent_score and score >= opponent_score:
+			await _trigger_walkoff()
+			return
 
 		match_data = _find_matches()
 		chain_count += 1
@@ -467,6 +565,8 @@ func _expand_special_detonations(positions: Dictionary) -> bool:
 ## announcement itself doesn't eat into the 10s multiplier window.
 func _start_rally() -> void:
 	is_paused = true
+	walkoff_label.visible = false
+	rally_announce_label.visible = true
 	rally_announce_label.text = "GRAND SLAM!\nRALLY TIME!"
 	rally_announcement.visible = true
 	_spawn_fireworks()
@@ -482,6 +582,35 @@ func _start_rally() -> void:
 	rally_time_left = RALLY_DURATION
 	rally_status_label.visible = true
 	rally_status_label.text = "RALLY! x%d (%ds)" % [RALLY_MULTIPLIER, int(RALLY_DURATION)]
+
+
+## A Home Run, Grand Slam Rally, or MVP Blast that newly pushes the score
+## past the opponent's live score ends the game on the spot — a real walk-off
+## doesn't wait out the rest of the clock. Bigger, slower spectacle than a
+## regular Rally announcement: a couple of fireworks bursts play out in slow
+## motion (global time_scale dropped for a fixed real-world duration) before
+## handing off to the normal end-game screen.
+func _trigger_walkoff() -> void:
+	is_paused = true
+	game_over = true
+
+	rally_announce_label.visible = false
+	walkoff_label.visible = true
+	walkoff_label.text = "WALK-OFF WIN!"
+	rally_announcement.visible = true
+
+	Engine.time_scale = WALKOFF_SLOWMO_SCALE
+	_spawn_fireworks()
+	_spawn_fireworks()
+	_play_rally_fanfare()
+
+	await get_tree().create_timer(WALKOFF_CELEBRATION_SECONDS, true, false, true).timeout
+
+	Engine.time_scale = 1.0
+	rally_announcement.visible = false
+	walkoff_label.visible = false
+	is_paused = false
+	_end_game()
 
 
 func _spawn_fireworks() -> void:

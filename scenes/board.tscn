@@ -20,7 +20,7 @@ offset_right = 700.0
 offset_bottom = 50.0
 theme_override_font_sizes/font_size = 28
 horizontal_alignment = 2
-text = "Target: 3000"
+text = "Opponent: 0"
 
 [node name="RallyBar" type="ProgressBar" parent="."]
 offset_left = 20.0
@@ -39,23 +39,33 @@ theme_override_font_sizes/font_size = 20
 horizontal_alignment = 2
 text = "RALLY! x2 (10s)"
 
+[node name="HotHandLabel" type="Label" parent="."]
+visible = false
+offset_left = 20.0
+offset_top = 88.0
+offset_right = 300.0
+offset_bottom = 114.0
+theme_override_colors/font_color = Color(1, 0.55, 0.15, 1)
+theme_override_font_sizes/font_size = 22
+text = "HOT HAND x2"
+
 [node name="TilesContainer" type="Node2D" parent="."]
-position = Vector2(20, 100)
+position = Vector2(20, 124)
 
 [node name="TimeLabel" type="Label" parent="."]
 offset_left = 20.0
-offset_top = 750.0
+offset_top = 778.0
 offset_right = 400.0
-offset_bottom = 785.0
+offset_bottom = 813.0
 theme_override_font_sizes/font_size = 28
 text = "Time: 1:00"
 
 [node name="BigPlayLabel" type="Label" parent="."]
 visible = false
 offset_left = 60.0
-offset_top = 360.0
+offset_top = 414.0
 offset_right = 660.0
-offset_bottom = 420.0
+offset_bottom = 474.0
 theme_override_font_sizes/font_size = 44
 horizontal_alignment = 1
 vertical_alignment = 1
@@ -84,6 +94,18 @@ vertical_alignment = 1
 text = "GRAND SLAM!
 RALLY TIME!"
 
+[node name="WalkoffLabel" type="Label" parent="RallyAnnouncement"]
+visible = false
+offset_left = 10.0
+offset_top = 390.0
+offset_right = 710.0
+offset_bottom = 520.0
+theme_override_colors/font_color = Color(1, 0.75, 0.1, 1)
+theme_override_font_sizes/font_size = 80
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "WALK-OFF WIN!"
+
 [node name="FireworksLayer" type="Node2D" parent="RallyAnnouncement"]
 
 [node name="RallyAudio" type="AudioStreamPlayer" parent="RallyAnnouncement"]
@@ -91,9 +113,9 @@ RALLY TIME!"
 [node name="EndPanel" type="Panel" parent="."]
 visible = false
 offset_left = 60.0
-offset_top = 340.0
+offset_top = 330.0
 offset_right = 660.0
-offset_bottom = 610.0
+offset_bottom = 680.0
 
 [node name="EndTitleLabel" type="Label" parent="EndPanel"]
 offset_left = 20.0
@@ -106,16 +128,26 @@ text = "GAME OVER"
 
 [node name="FinalScoreLabel" type="Label" parent="EndPanel"]
 offset_left = 20.0
-offset_top = 100.0
+offset_top = 85.0
 offset_right = 580.0
-offset_bottom = 140.0
+offset_bottom = 120.0
 theme_override_font_sizes/font_size = 22
 horizontal_alignment = 1
-text = "Final Score: 0   Target: 3000"
+text = "Final Score: 0   Opponent: 0"
+
+[node name="StatsLabel" type="Label" parent="EndPanel"]
+offset_left = 20.0
+offset_top = 135.0
+offset_right = 580.0
+offset_bottom = 245.0
+theme_override_font_sizes/font_size = 18
+horizontal_alignment = 1
+text = "Doubles: 0   Triples: 0   Home Runs: 0
+Grand Slams: 0   MVP Blasts: 0   Longest Cascade: 0"
 
 [node name="PlayAgainButton" type="Button" parent="EndPanel"]
 offset_left = 200.0
-offset_top = 190.0
+offset_top = 270.0
 offset_right = 380.0
-offset_bottom = 240.0
+offset_bottom = 320.0
 text = "Play Again"
