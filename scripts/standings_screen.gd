@@ -20,12 +20,14 @@ func _build_status_text() -> String:
 				SeasonManager.regular_wins, SeasonManager.regular_losses, next_team
 			]
 		"semifinal":
-			return "SEMIFINAL vs %s\nSeries: You %d - %d" % [
-				SeasonManager.SEMIFINAL_OPPONENT_NAME, SeasonManager.series_player_wins, SeasonManager.series_opponent_wins
+			return "SEMIFINAL vs %s\nSeries: You %d - %d\n\n%s" % [
+				SeasonManager.semifinal_opponent_name, SeasonManager.series_player_wins,
+				SeasonManager.series_opponent_wins, _build_bracket_text()
 			]
 		"finals":
-			return "FINALS vs %s\nSeries: You %d - %d" % [
-				SeasonManager.RIVAL_NAME, SeasonManager.series_player_wins, SeasonManager.series_opponent_wins
+			return "FINALS vs %s\nSeries: You %d - %d\n\n%s" % [
+				SeasonManager.finals_opponent_name, SeasonManager.series_player_wins,
+				SeasonManager.series_opponent_wins, _build_bracket_text()
 			]
 		"champion":
 			return "SEASON COMPLETE\nYou're the Champion!"
@@ -37,6 +39,16 @@ func _build_status_text() -> String:
 			return "SEASON COMPLETE\nMissed the playoffs at %d-%d" % [SeasonManager.regular_wins, SeasonManager.regular_losses]
 		_:
 			return ""
+
+
+func _build_bracket_text() -> String:
+	if SeasonManager.bracket_seeds.is_empty():
+		return ""
+	var lines: Array = ["BRACKET"]
+	for i in range(SeasonManager.bracket_seeds.size()):
+		var e: Dictionary = SeasonManager.bracket_seeds[i]
+		lines.append("#%d %s (%d-%d)" % [i + 1, e.name, e.wins, SeasonManager.REGULAR_SEASON_GAMES - e.wins])
+	return "\n".join(lines)
 
 
 ## A full league table: each team's own overall record this season (not

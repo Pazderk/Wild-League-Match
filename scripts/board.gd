@@ -177,8 +177,10 @@ func _ready() -> void:
 
 ## A brief pre-game beat for Semifinal/Finals games: which round, the
 ## current series score, and a heads-up that scores are tougher — plus,
-## on the very first Finals game only, a line of flavor about the "other"
-## semifinal (never actually simulated beyond that one line).
+## on the very first Finals game only, a line about the "other" semifinal
+## (the bracket pairing that doesn't include the player), which was
+## genuinely simulated when the bracket formed, not just flavor text —
+## its winner is the actual current_team_name for this Finals matchup.
 func _show_playoff_intro() -> void:
 	is_paused = true
 	var stage_name := "SEMIFINAL (Best of 3)" if SeasonManager.stage == "semifinal" else "FINALS (Best of 5)"
@@ -345,13 +347,14 @@ func _show_advanced_screen(stage_after: String) -> void:
 	final_score_label.text = "Final Score: %d   %s: %d" % [score, current_team_name, opponent_score]
 	if stage_after == "semifinal":
 		end_title_label.text = "PLAYOFFS!"
-		stats_label.text = "%s\n\nRegular season: %d-%d. You're in the playoffs!" % [
-			_box_score_text(), SeasonManager.regular_wins, SeasonManager.regular_losses
+		stats_label.text = "%s\n\nRegular season: %d-%d. You're seed #%d!\nSemifinal: vs %s." % [
+			_box_score_text(), SeasonManager.regular_wins, SeasonManager.regular_losses,
+			SeasonManager.player_seed_index + 1, SeasonManager.semifinal_opponent_name
 		]
 	else: # semifinal -> finals
 		end_title_label.text = "ADVANCE TO THE FINALS!"
 		stats_label.text = "%s\n\nWon the Semifinal! Next: the Finals vs the %s." % [
-			_box_score_text(), SeasonManager.RIVAL_NAME
+			_box_score_text(), SeasonManager.finals_opponent_name
 		]
 	play_again_button.text = "Play Again"
 	end_panel.visible = true

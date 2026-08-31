@@ -22,21 +22,21 @@ text = "SEASON STANDINGS"
 
 [node name="StatusLabel" type="Label" parent="."]
 offset_left = 20.0
-offset_top = 110.0
+offset_top = 100.0
 offset_right = 700.0
-offset_bottom = 220.0
+offset_bottom = 400.0
 theme_override_colors/font_color = Color(1, 1, 1, 1)
-theme_override_font_sizes/font_size = 24
+theme_override_font_sizes/font_size = 22
 horizontal_alignment = 1
 text = "Regular Season: Game 1 of 8"
 
 [node name="TeamsLabel" type="Label" parent="."]
 offset_left = 40.0
-offset_top = 250.0
+offset_top = 420.0
 offset_right = 680.0
-offset_bottom = 700.0
+offset_bottom = 820.0
 theme_override_colors/font_color = Color(0.9, 0.95, 0.9, 1)
-theme_override_font_sizes/font_size = 22
+theme_override_font_sizes/font_size = 20
 vertical_alignment = 0
 text = "Team records"
 
