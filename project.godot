@@ -22,6 +22,10 @@ window/size/viewport_height=960
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 
+[autoload]
+
+SeasonManager="*res://scripts/season_manager.gd"
+
 [physics]
 
 3d/physics_engine="Jolt Physics"

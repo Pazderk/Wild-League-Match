@@ -1,8 +1,8 @@
 extends Node2D
 
 ## One "game": an 8x8 swap-3 board played against a running clock, racing a
-## live opponent score that climbs over the course of the game. Beat their
-## live score when time runs out (or hit a Walk-off Win first) to win.
+## hidden opponent score that's revealed with 15 seconds left. Beat it when
+## time runs out (or hit a Walk-off Win in that final stretch) to win.
 ##
 ## Tiles never move as nodes — we swap/shift the `gem_type`/`special_type`
 ## values stored on each fixed-position tile, which keeps match/gravity logic
@@ -33,11 +33,11 @@ const MAX_CHAIN_MULTIPLIER := 3
 # 10s Rally window itself) resumes.
 const RALLY_ANNOUNCE_DURATION := 2.0
 
-# The opponent's live score climbs toward this by the time the clock runs
-# out (with some randomness in pacing), rather than sitting at a fixed number
-# the whole game.
-const OPPONENT_TICK_MIN := 3.0
-const OPPONENT_TICK_MAX := 7.0
+# The opponent's score is rolled (from the current team's range) and fixed
+# at game start, but stays hidden on the HUD until this many seconds remain —
+# a Walk-off Win can't happen before the reveal, so the earliest one can ever
+# fire is right at this mark.
+const OPPONENT_REVEAL_TIME_LEFT := 15.0
 
 # Consecutive successful swaps build a small bonus on top of everything else;
 # a whiffed swap or a few idle seconds resets it.
@@ -78,10 +78,10 @@ var is_paused := false
 var game_over := false
 var score := 0
 
-# Placeholder for now; a SeasonManager will later pass this in per-game,
-# rising each season/rival/playoff instead of being fixed here. This is what
-# the opponent's live score climbs toward, not a fixed win threshold itself.
-var target_score := 5000
+# Rolled from the current SeasonManager team's range at _ready(); this game's
+# fixed (but initially hidden) score to beat.
+var target_score := 0
+var current_team_name := ""
 
 var time_left := SESSION_SECONDS
 var rally_meter := 0.0
@@ -90,8 +90,7 @@ var time_up_handled := false
 var final_move_active := false
 
 var opponent_score := 0
-var opponent_tick_timer := 0.0
-var opponent_next_tick := 0.0
+var opponent_revealed := false
 
 var hot_hand_streak := 0
 var hot_hand_idle_timer := 0.0
@@ -107,14 +106,19 @@ var stat_longest_cascade := 0
 func _ready() -> void:
 	randomize()
 	_build_board()
-	opponent_label.text = "Opponent: %d" % opponent_score
+
+	var team: Dictionary = SeasonManager.get_current_team()
+	current_team_name = team.name
+	target_score = SeasonManager.roll_target_score()
+	opponent_score = target_score
+	opponent_label.text = "%s: ??" % current_team_name
+
 	_update_time_label()
 	rally_bar.max_value = RALLY_METER_MAX
 	rally_bar.value = 0.0
 	rally_status_label.visible = false
 	rally_announcement.visible = false
 	hot_hand_label.visible = false
-	opponent_next_tick = randf_range(OPPONENT_TICK_MIN, OPPONENT_TICK_MAX)
 
 	var generator := AudioStreamGenerator.new()
 	generator.mix_rate = 44100.0
@@ -135,11 +139,10 @@ func _process(delta: float) -> void:
 		time_left = max(time_left - delta, 0.0)
 		_update_time_label()
 
-		opponent_tick_timer += delta
-		if opponent_tick_timer >= opponent_next_tick:
-			opponent_tick_timer = 0.0
-			opponent_next_tick = randf_range(OPPONENT_TICK_MIN, OPPONENT_TICK_MAX)
-			_opponent_scores()
+		if not opponent_revealed and time_left <= OPPONENT_REVEAL_TIME_LEFT:
+			opponent_revealed = true
+			opponent_label.text = "%s: %d" % [current_team_name, opponent_score]
+			_show_big_play("FINAL STRETCH!")
 
 		hot_hand_idle_timer += delta
 		if hot_hand_idle_timer >= HOT_HAND_DECAY_IDLE_SECONDS and hot_hand_streak > 0:
@@ -155,18 +158,6 @@ func _process(delta: float) -> void:
 		rally_status_label.text = "RALLY! x%d (%ds)" % [RALLY_MULTIPLIER, ceil(rally_time_left)]
 		if rally_time_left <= 0.0:
 			rally_status_label.visible = false
-
-
-## The opponent's score climbs in irregular bursts rather than a smooth ramp,
-## generally tracking toward target_score by the time the clock runs out —
-## it's meant to feel like a live scoreboard, not a fixed number to clear.
-func _opponent_scores() -> void:
-	var time_fraction: float = clamp((SESSION_SECONDS - time_left) / SESSION_SECONDS, 0.0, 1.0)
-	var expected: float = target_score * time_fraction
-	var deficit: float = max(expected - opponent_score, 0.0)
-	var gain: int = int(max(20.0, deficit * randf_range(0.6, 1.4)))
-	opponent_score += gain
-	opponent_label.text = "Opponent: %d" % opponent_score
 
 
 func _update_time_label() -> void:
@@ -202,9 +193,17 @@ func _end_game() -> void:
 	game_over = true
 	var did_win := score >= opponent_score
 	end_title_label.text = "YOU WIN!" if did_win else "GAME OVER"
-	final_score_label.text = "Final Score: %d   Opponent: %d" % [score, opponent_score]
-	stats_label.text = "Doubles: %d   Triples: %d   Home Runs: %d\nGrand Slams: %d   MVP Blasts: %d   Longest Cascade: %d" % [
-		stat_doubles, stat_triples, stat_home_runs, stat_grand_slams, stat_mvp_blasts, stat_longest_cascade
+	final_score_label.text = "Final Score: %d   %s: %d" % [score, current_team_name, opponent_score]
+
+	SeasonManager.report_result(did_win)
+	var record: Dictionary = SeasonManager.get_record(current_team_name)
+	var totals: Dictionary = SeasonManager.get_season_totals()
+	stats_label.text = ("Doubles: %d   Triples: %d   Home Runs: %d\n" +
+		"Grand Slams: %d   MVP Blasts: %d   Longest Cascade: %d\n\n" +
+		"vs %s: %d-%d      Season: %d-%d") % [
+		stat_doubles, stat_triples, stat_home_runs,
+		stat_grand_slams, stat_mvp_blasts, stat_longest_cascade,
+		current_team_name, record.wins, record.losses, totals.wins, totals.losses
 	]
 	end_panel.visible = true
 
@@ -499,7 +498,7 @@ func _resolve_matches(match_data: Dictionary, forced_label: String = "", hot_han
 		await get_tree().create_timer(0.1).timeout
 
 		var is_walkoff_event := event_label == "HOME RUN!" or event_label == "MVP BLAST!" or rally_just_started
-		if is_walkoff_event and score_before_step < opponent_score and score >= opponent_score:
+		if is_walkoff_event and opponent_revealed and score_before_step < opponent_score and score >= opponent_score:
 			await _trigger_walkoff()
 			return
 
