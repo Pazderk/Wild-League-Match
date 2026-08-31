@@ -217,12 +217,25 @@ func _roll_other_semifinal_flavor() -> void:
 ## qualifying record so they're guaranteed to make the playoffs.
 func _roll_league_records() -> void:
 	league_records = {}
+	var non_rival_count := 0
+	for t in teams:
+		if not t.rival:
+			non_rival_count += 1
+
+	var non_rival_index := 0
 	for t in teams:
 		var wins: int
 		if t.rival:
-			wins = randi_range(WINS_NEEDED_TO_QUALIFY, REGULAR_SEASON_GAMES)
+			# Always qualifies, and tends to look genuinely dominant.
+			wins = clamp(7 + randi_range(-2, 1), WINS_NEEDED_TO_QUALIFY, REGULAR_SEASON_GAMES)
 		else:
-			wins = randi_range(0, REGULAR_SEASON_GAMES)
+			# Biased toward the team's difficulty tier (its position in the
+			# roughly-ascending-difficulty team list) so tougher opponents
+			# also tend to sit higher in the standings, not pure noise —
+			# still with enough spread for an occasional upset either way.
+			var expected: float = lerp(3.0, 6.0, float(non_rival_index) / float(non_rival_count - 1))
+			wins = clamp(int(round(expected)) + randi_range(-2, 2), 0, REGULAR_SEASON_GAMES)
+			non_rival_index += 1
 		league_records[t.name] = {"wins": wins, "losses": REGULAR_SEASON_GAMES - wins}
 
 
