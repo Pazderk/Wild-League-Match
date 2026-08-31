@@ -20,7 +20,7 @@ const SAVE_PATH := "user://season_save.json"
 
 const REGULAR_SEASON_GAMES := 8
 const WINS_NEEDED_TO_QUALIFY := 5
-const SEMIFINAL_OPPONENT_NAME := "Summit Eagles"
+const SEMIFINAL_OPPONENT_NAME := "Summit Rams"
 const RIVAL_NAME := "Vipers"
 const SEMIFINAL_WINS_NEEDED := 2 # best of 3
 const FINALS_WINS_NEEDED := 3 # best of 5
@@ -29,11 +29,11 @@ const PLAYOFF_SCORE_BOOST := 1.18 # tougher score ranges once the postseason sta
 var teams := [
 	{"name": "Ironbark Bears", "min_score": 3500, "max_score": 4500, "rival": false},
 	{"name": "Riverside Otters", "min_score": 3800, "max_score": 4800, "rival": false},
-	{"name": "Copper Hawks", "min_score": 4000, "max_score": 5000, "rival": false},
+	{"name": "Copper City Hawks", "min_score": 4000, "max_score": 5000, "rival": false},
 	{"name": "Frostpaw Wolves", "min_score": 4200, "max_score": 5200, "rival": false},
 	{"name": "Sundown Foxes", "min_score": 4400, "max_score": 5400, "rival": false},
 	{"name": "Highland Owls", "min_score": 4600, "max_score": 5600, "rival": false},
-	{"name": "Summit Eagles", "min_score": 4800, "max_score": 6000, "rival": false},
+	{"name": "Summit Rams", "min_score": 4800, "max_score": 6000, "rival": false},
 	{"name": RIVAL_NAME, "min_score": 7000, "max_score": 9000, "rival": true},
 ]
 
