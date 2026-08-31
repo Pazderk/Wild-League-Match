@@ -4,27 +4,26 @@ extends Node
 ## board.tscn), so season/playoff progress persists across games within a
 ## session, and to disk across closing/reopening the app.
 ##
-## Regular season: 8 teams played in order, 5+/8 wins needed to qualify.
-## Elimination (more than 3 losses, mathematically hopeless) ends the season
-## immediately — but qualifying does not, since your final win total (up to
-## all 8 games) determines your playoff seed, so games after your 5th win
-## still matter.
+## Regular season: a real 8-team round robin (you + 7 others), played
+## incrementally. Each time you finish a game, the other 6 teams not facing
+## you that week are randomly paired into 3 more games and simulated, so
+## everyone's record evolves week by week instead of being pre-rolled once.
+## You face all 7 other teams twice each over 14 games (cycling through
+## them). No early exit — every game is played, and standings after all 14
+## decide who's in.
 ##
-## Playoffs: a real seeded 4-team bracket. The player + the top 3 of the
-## other 7 teams (by their own rolled season record) are seeded 1-4 by
-## wins; the Vipers are always the best of those other 3. Semifinal is
-## seed 1 vs 4 and 2 vs 3 — the player plays whichever pairing they're
-## seeded into, so the Vipers could be a Semifinal opponent, not always
-## the Finals. The "other" semifinal (the pairing without the player) is
-## simulated once, favoring the higher seed but not certain, and its
-## winner becomes the player's actual Finals opponent. Nothing carries
+## Playoffs: the top 4 of the full 8-team standings (you + 7 others) make
+## it. Seed 1 plays seed 4, seed 2 plays seed 3 — whichever pairing you're
+## seeded into is your real Semifinal opponent, so the Vipers could be a
+## Semifinal foe, not always the Finals. The "other" semifinal (the pairing
+## without you) is simulated once, favoring the higher seed but not
+## certain, and its winner becomes your Finals opponent. Nothing carries
 ## over between seasons yet — a new season is a full reset.
 
 const SAVE_PATH := "user://season_save.json"
 const PREFS_PATH := "user://prefs.json"
 
-const REGULAR_SEASON_GAMES := 8
-const WINS_NEEDED_TO_QUALIFY := 5
+const REGULAR_SEASON_GAMES := 14
 const RIVAL_NAME := "Blackthorn Vipers"
 const SEMIFINAL_WINS_NEEDED := 2 # best of 3
 const FINALS_WINS_NEEDED := 3 # best of 5
@@ -33,7 +32,6 @@ const PLAYOFF_SCORE_BOOST := 1.18 # tougher score ranges once the postseason sta
 var teams := [
 	{"name": "Ironbark Bears", "min_score": 3500, "max_score": 4500, "rival": false},
 	{"name": "Riverside Otters", "min_score": 3800, "max_score": 4800, "rival": false},
-	{"name": "Copper City Hawks", "min_score": 4000, "max_score": 5000, "rival": false},
 	{"name": "Graymoor Wolves", "min_score": 4200, "max_score": 5200, "rival": false},
 	{"name": "Redbrush Foxes", "min_score": 4400, "max_score": 5400, "rival": false},
 	{"name": "Highland Owls", "min_score": 4600, "max_score": 5600, "rival": false},
@@ -42,10 +40,12 @@ var teams := [
 ]
 
 var records := {} # team_name -> {"wins": int, "losses": int}; regular season only
-# Each of the 8 teams' own overall record for the season (not the player's
-# record against them) — rolled once at the start of the season and fixed
-# for its duration. The Vipers always roll (and are guaranteed to keep) the
-# single best record among the other 7 teams, so they're always a top seed.
+# Each of the 7 other teams' own overall record for the season (not the
+# player's record against them). Starts at 0-0 each season and evolves
+# incrementally: every time the player finishes a game, the 6 teams not
+# facing the player that week are randomly paired up and simulated. The
+# Vipers are weighted to usually finish with the best record among the
+# other 6, with a guaranteed top-up at bracket time if they don't.
 var league_records := {} # team_name -> {"wins": int, "losses": int}
 var current_team_index := 0
 var regular_games_played := 0
@@ -75,7 +75,7 @@ func _ready() -> void:
 	_load()
 	_load_prefs()
 	if league_records.is_empty():
-		_roll_league_records()
+		_reset_league_records()
 
 
 func mark_tutorial_seen() -> void:
@@ -169,22 +169,17 @@ func _report_regular_result(did_win: bool) -> void:
 		records[team.name].losses += 1
 		regular_losses += 1
 	regular_games_played += 1
+
+	# The 6 teams not facing the player this week play each other too, so
+	# the whole league's standings evolve together, week by week.
+	_simulate_other_teams_week(team.name)
+
 	current_team_index = (current_team_index + 1) % teams.size()
 
-	# Elimination still ends the season immediately once it's mathematically
-	# hopeless — no number of remaining wins could reach 5. But qualifying no
-	# longer ends it early: with a real seeded bracket, your final win total
-	# (up to all 8 games) decides your seed, so games after your 5th win are
-	# no longer meaningless — winning more of them earns a better matchup
-	# instead of getting bumped into a worse one.
-	if regular_losses > REGULAR_SEASON_GAMES - WINS_NEEDED_TO_QUALIFY:
-		stage = "missed_playoffs"
-	elif regular_games_played >= REGULAR_SEASON_GAMES:
-		if regular_wins >= WINS_NEEDED_TO_QUALIFY:
-			_setup_playoff_bracket()
-			stage = "semifinal"
-		else:
-			stage = "missed_playoffs"
+	# No early exit — every one of the 14 games matters for final standing,
+	# so qualification is only ever decided once the season is complete.
+	if regular_games_played >= REGULAR_SEASON_GAMES:
+		_finish_regular_season()
 
 
 func _report_series_result(did_win: bool, wins_needed: int, advance_stage: String, eliminate_stage: String) -> void:
@@ -205,29 +200,50 @@ func _report_series_result(did_win: bool, wins_needed: int, advance_stage: Strin
 		stage = eliminate_stage
 
 
-## Seeds the 4-team bracket the instant the player qualifies: the player +
-## the top 3 of the other 7 teams by their rolled season record. Seed 1
+## The full 8-team standings (the player + all 7 other teams) sorted by
+## wins, best first. Used both for the standings screen and to decide who
+## makes the playoffs.
+func compute_standings() -> Array:
+	var entries: Array = []
+	for t in teams:
+		var r: Dictionary = get_league_record(t.name)
+		entries.append({"name": t.name, "wins": r.wins, "losses": r.losses, "rival": t.rival})
+	entries.append({"name": "YOU", "wins": regular_wins, "losses": regular_losses, "rival": false})
+	entries.sort_custom(_compare_seed_entries)
+	return entries
+
+
+## Called once the 14th game is played. The top 4 of the full standings make
+## the playoffs; everyone else's season ends here. Vipers supremacy among
+## the other teams is guaranteed at this point (a rare top-up if their
+## simulated results didn't already land them on top).
+func _finish_regular_season() -> void:
+	_enforce_vipers_supremacy()
+	var standings: Array = compute_standings()
+	var top4: Array = standings.slice(0, 4)
+
+	var player_seed := -1
+	for i in range(top4.size()):
+		if top4[i].name == "YOU":
+			player_seed = i
+			break
+
+	if player_seed == -1:
+		stage = "missed_playoffs"
+		return
+
+	_setup_playoff_bracket(top4, player_seed)
+	stage = "semifinal"
+
+
+## Seeds the 4-team bracket from the top 4 of the final standings. Seed 1
 ## plays seed 4, seed 2 plays seed 3 — whichever pairing includes the
 ## player determines their real Semifinal opponent (which may be the
 ## Vipers). The other pairing is simulated immediately so its winner is
 ## ready to serve as the player's Finals opponent in advance.
-func _setup_playoff_bracket() -> void:
-	var others: Array = []
-	for t in teams:
-		var r: Dictionary = get_league_record(t.name)
-		others.append({"name": t.name, "wins": r.wins})
-	others.sort_custom(_compare_seed_entries)
-
-	var entrants: Array = others.slice(0, 3)
-	entrants.append({"name": "YOU", "wins": regular_wins})
-	entrants.sort_custom(_compare_seed_entries)
-
+func _setup_playoff_bracket(entrants: Array, player_seed: int) -> void:
 	bracket_seeds = entrants
-	player_seed_index = 0
-	for i in range(entrants.size()):
-		if entrants[i].name == "YOU":
-			player_seed_index = i
-			break
+	player_seed_index = player_seed
 
 	var opponent_index: int = 3 - player_seed_index # seed1<->seed4 (0,3), seed2<->seed3 (1,2)
 	semifinal_opponent_name = entrants[opponent_index].name
@@ -270,33 +286,91 @@ func _simulate_other_semifinal(a: Dictionary, b: Dictionary) -> void:
 	]
 
 
-## Each team's own overall record for the season (standings-table flavor,
-## not the player's record against them). The Vipers are always guaranteed
-## the single best record among the other 7 teams.
-func _roll_league_records() -> void:
+func _reset_league_records() -> void:
 	league_records = {}
-	var non_rival_count := 0
+	for t in teams:
+		league_records[t.name] = {"wins": 0, "losses": 0}
+
+
+## Every week, the 6 other teams not facing the player are randomly paired
+## into 3 games and simulated, so the standings evolve organically instead
+## of being pre-rolled. Since each of the 7 other teams sits out (facing the
+## player instead) 2 of the 14 weeks, their season totals will typically add
+## up to 12 games, not 14 — a small, accepted quirk of not tracking a full
+## fixture list.
+func _simulate_other_teams_week(exclude_name: String) -> void:
+	var others: Array = []
+	for t in teams:
+		if t.name != exclude_name:
+			others.append(t.name)
+	others.shuffle()
+	var i := 0
+	while i + 1 < others.size():
+		_simulate_one_game(others[i], others[i + 1])
+		i += 2
+
+
+## Simulates a single game between two non-player teams, biased by each
+## team's difficulty tier (their position in the roughly-ascending-difficulty
+## team list) plus a small nudge from their current record, so tougher teams
+## and hot streaks both tend to show up in the standings without being
+## deterministic. The Vipers carry a strong, but not certain, edge.
+func _simulate_one_game(name_a: String, name_b: String) -> void:
+	if not league_records.has(name_a):
+		league_records[name_a] = {"wins": 0, "losses": 0}
+	if not league_records.has(name_b):
+		league_records[name_b] = {"wins": 0, "losses": 0}
+
+	var team_a := _find_team(name_a)
+	var team_b := _find_team(name_b)
+
+	var prob_a_wins: float
+	if team_a.rival:
+		prob_a_wins = 0.8
+	elif team_b.rival:
+		prob_a_wins = 0.2
+	else:
+		var strength_diff: float = _non_rival_strength(name_a) - _non_rival_strength(name_b)
+		var record_diff: int = league_records[name_a].wins - league_records[name_b].wins
+		prob_a_wins = clamp(0.5 + strength_diff + record_diff * 0.02, 0.15, 0.85)
+
+	if randf() < prob_a_wins:
+		league_records[name_a].wins += 1
+		league_records[name_b].losses += 1
+	else:
+		league_records[name_b].wins += 1
+		league_records[name_a].losses += 1
+
+
+## A non-rival team's innate strength (0.35 weakest to 0.65 strongest) based
+## on its position in the team list, which is itself roughly ascending
+## difficulty.
+func _non_rival_strength(team_name: String) -> float:
+	var non_rival_names: Array = []
 	for t in teams:
 		if not t.rival:
-			non_rival_count += 1
+			non_rival_names.append(t.name)
+	var idx: int = non_rival_names.find(team_name)
+	if idx == -1:
+		return 0.5
+	return lerp(0.35, 0.65, float(idx) / float(non_rival_names.size() - 1))
 
-	var non_rival_index := 0
-	var max_non_rival_wins := 0
+
+## Safety net at bracket time: if the Vipers' simulated results didn't
+## already land them on top of the other 6 teams, top them up just enough,
+## keeping their total games played unchanged.
+func _enforce_vipers_supremacy() -> void:
+	var vipers: Dictionary = get_league_record(RIVAL_NAME)
+	var max_other := 0
 	for t in teams:
 		if t.rival:
 			continue
-		# Biased toward the team's difficulty tier (its position in the
-		# roughly-ascending-difficulty team list) so tougher opponents also
-		# tend to sit higher in the standings, not pure noise — still with
-		# enough spread for an occasional upset either way.
-		var expected: float = lerp(3.0, 6.0, float(non_rival_index) / float(non_rival_count - 1))
-		var wins: int = clamp(int(round(expected)) + randi_range(-2, 2), 0, REGULAR_SEASON_GAMES)
-		league_records[t.name] = {"wins": wins, "losses": REGULAR_SEASON_GAMES - wins}
-		max_non_rival_wins = max(max_non_rival_wins, wins)
-		non_rival_index += 1
+		max_other = max(max_other, get_league_record(t.name).wins)
 
-	var vipers_wins: int = clamp(max_non_rival_wins + 1, WINS_NEEDED_TO_QUALIFY, REGULAR_SEASON_GAMES)
-	league_records[RIVAL_NAME] = {"wins": vipers_wins, "losses": REGULAR_SEASON_GAMES - vipers_wins}
+	if vipers.wins <= max_other:
+		var total_games: int = vipers.wins + vipers.losses
+		var boosted_wins: int = clamp(max_other + 1, 0, total_games)
+		league_records[RIVAL_NAME] = {"wins": boosted_wins, "losses": total_games - boosted_wins}
 
 
 func get_league_record(team_name: String) -> Dictionary:
@@ -330,7 +404,7 @@ func reset_season() -> void:
 	player_seed_index = -1
 	semifinal_opponent_name = ""
 	finals_opponent_name = ""
-	_roll_league_records()
+	_reset_league_records()
 	_save()
 
 
