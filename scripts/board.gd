@@ -241,7 +241,7 @@ func _random_type_without_match(x: int, y: int) -> int:
 
 
 func _on_tile_clicked(grid_pos: Vector2i) -> void:
-	if game_over or is_busy:
+	if game_over or is_busy or is_paused:
 		return
 
 	if selected_tile == Vector2i(-1, -1):
