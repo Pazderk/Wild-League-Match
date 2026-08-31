@@ -33,16 +33,21 @@ const MAX_CHAIN_MULTIPLIER := 3
 # 10s Rally window itself) resumes.
 const RALLY_ANNOUNCE_DURATION := 2.0
 
-# The opponent's score is rolled (from the current team's range) and fixed
-# at game start, but stays hidden on the HUD until this many seconds remain —
-# a Walk-off Win can't happen before the reveal, so the earliest one can ever
-# fire is right at this mark.
+# The opponent's real score is rolled (from the current team's range) and
+# fixed at game start, but stays hidden until this many seconds remain — a
+# Walk-off Win can't happen before the reveal, so the earliest one can ever
+# fire is right at this mark. Until then the HUD shows a decoy number (an
+# independent second roll from the same team's range) climbing toward its
+# own ceiling, so most of the game shows *a* live-looking number without
+# giving away the real target to beat.
 const OPPONENT_REVEAL_TIME_LEFT := 15.0
+const DECOY_TICK_MIN := 2.5
+const DECOY_TICK_MAX := 5.0
 
 # Consecutive successful swaps build a small bonus on top of everything else;
 # a whiffed swap or a few idle seconds resets it.
-const HOT_HAND_DECAY_IDLE_SECONDS := 4.0
-const HOT_HAND_MAX_STREAK := 5
+const HOT_HAND_DECAY_IDLE_SECONDS := 3.0
+const HOT_HAND_MAX_STREAK := 8
 const HOT_HAND_BONUS_PER_STACK := 0.1
 
 # Walk-off celebration: real-world seconds the slow-motion beat lasts,
@@ -91,6 +96,10 @@ var final_move_active := false
 
 var opponent_score := 0
 var opponent_revealed := false
+var decoy_score := 0
+var decoy_ceiling := 0
+var decoy_tick_timer := 0.0
+var decoy_next_tick := 0.0
 
 var hot_hand_streak := 0
 var hot_hand_idle_timer := 0.0
@@ -111,7 +120,9 @@ func _ready() -> void:
 	current_team_name = team.name
 	target_score = SeasonManager.roll_target_score()
 	opponent_score = target_score
-	opponent_label.text = "%s: ??" % current_team_name
+	decoy_ceiling = SeasonManager.roll_target_score() # independent re-roll, just for the decoy display
+	decoy_next_tick = randf_range(DECOY_TICK_MIN, DECOY_TICK_MAX)
+	opponent_label.text = "%s: 0" % current_team_name
 
 	_update_time_label()
 	rally_bar.max_value = RALLY_METER_MAX
@@ -139,10 +150,17 @@ func _process(delta: float) -> void:
 		time_left = max(time_left - delta, 0.0)
 		_update_time_label()
 
-		if not opponent_revealed and time_left <= OPPONENT_REVEAL_TIME_LEFT:
-			opponent_revealed = true
-			opponent_label.text = "%s: %d" % [current_team_name, opponent_score]
-			_show_big_play("FINAL STRETCH!")
+		if not opponent_revealed:
+			if time_left <= OPPONENT_REVEAL_TIME_LEFT:
+				opponent_revealed = true
+				opponent_label.text = "%s: %d" % [current_team_name, opponent_score]
+				_show_big_play("FINAL STRETCH!")
+			else:
+				decoy_tick_timer += delta
+				if decoy_tick_timer >= decoy_next_tick:
+					decoy_tick_timer = 0.0
+					decoy_next_tick = randf_range(DECOY_TICK_MIN, DECOY_TICK_MAX)
+					_tick_decoy_score()
 
 		hot_hand_idle_timer += delta
 		if hot_hand_idle_timer >= HOT_HAND_DECAY_IDLE_SECONDS and hot_hand_streak > 0:
@@ -158,6 +176,20 @@ func _process(delta: float) -> void:
 		rally_status_label.text = "RALLY! x%d (%ds)" % [RALLY_MULTIPLIER, ceil(rally_time_left)]
 		if rally_time_left <= 0.0:
 			rally_status_label.visible = false
+
+
+## Climbs in irregular bursts toward decoy_ceiling (an independent roll,
+## unrelated to the real opponent_score) during the pre-reveal window — a
+## visibly "alive" scoreboard number that gives no real information about
+## the actual target, which stays hidden until the reveal.
+func _tick_decoy_score() -> void:
+	var window := SESSION_SECONDS - OPPONENT_REVEAL_TIME_LEFT
+	var time_fraction: float = clamp((SESSION_SECONDS - time_left) / window, 0.0, 1.0)
+	var expected: float = decoy_ceiling * time_fraction
+	var deficit: float = max(expected - decoy_score, 0.0)
+	var gain: int = int(max(15.0, deficit * randf_range(0.6, 1.4)))
+	decoy_score += gain
+	opponent_label.text = "%s: %d" % [current_team_name, decoy_score]
 
 
 func _update_time_label() -> void:
