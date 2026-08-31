@@ -77,14 +77,15 @@ func _build_teams_text() -> String:
 	entries.sort_custom(func(a, b): return a.wins > b.wins)
 
 	var lines: Array = ["LEAGUE STANDINGS"]
-	for e in entries:
+	for i in range(entries.size()):
+		var e: Dictionary = entries[i]
 		var tags: Array = []
 		if e.rival:
 			tags.append("RIVAL")
 		if e.final_wins >= SeasonManager.WINS_NEEDED_TO_QUALIFY:
 			tags.append("PLAYOFFS")
 		var tag_str := ("  (%s)" % ", ".join(tags)) if not tags.is_empty() else ""
-		lines.append("%s: %d-%d%s" % [e.name, e.wins, e.losses, tag_str])
+		lines.append("%d. %s: %d-%d%s" % [i + 1, e.name, e.wins, e.losses, tag_str])
 	return "\n".join(lines)
 
 
