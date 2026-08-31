@@ -68,6 +68,8 @@ const TileScene := preload("res://scenes/tile.tscn")
 @onready var rally_announcement: Control = $RallyAnnouncement
 @onready var rally_announce_label: Label = $RallyAnnouncement/AnnounceLabel
 @onready var walkoff_label: Label = $RallyAnnouncement/WalkoffLabel
+@onready var champion_label: Label = $RallyAnnouncement/ChampionLabel
+@onready var trophy_drawing: Node2D = $RallyAnnouncement/TrophyDrawing
 @onready var fireworks_layer: Node2D = $RallyAnnouncement/FireworksLayer
 @onready var rally_audio: AudioStreamPlayer = $RallyAnnouncement/RallyAudio
 @onready var end_panel: Panel = $EndPanel
@@ -93,6 +95,7 @@ var rally_meter := 0.0
 var rally_time_left := 0.0
 var time_up_handled := false
 var final_move_active := false
+var season_over := false
 
 var opponent_score := 0
 var opponent_revealed := false
@@ -116,7 +119,7 @@ func _ready() -> void:
 	randomize()
 	_build_board()
 
-	var team: Dictionary = SeasonManager.get_current_team()
+	var team: Dictionary = SeasonManager.get_current_opponent()
 	current_team_name = team.name
 	target_score = SeasonManager.roll_target_score()
 	opponent_score = target_score
@@ -130,16 +133,49 @@ func _ready() -> void:
 	rally_status_label.visible = false
 	rally_announcement.visible = false
 	hot_hand_label.visible = false
+	champion_label.visible = false
+	trophy_drawing.visible = false
 
 	var generator := AudioStreamGenerator.new()
 	generator.mix_rate = 44100.0
 	generator.buffer_length = 3.0
 	rally_audio.stream = generator
 
-	play_again_button.pressed.connect(func(): get_tree().reload_current_scene())
+	play_again_button.pressed.connect(func():
+		if season_over:
+			SeasonManager.reset_season()
+		get_tree().reload_current_scene()
+	)
+
+	if SeasonManager.is_playoff_stage():
+		await _show_playoff_intro()
 
 	if not _has_valid_move():
 		await _reshuffle_board()
+
+
+## A brief pre-game beat for Semifinal/Finals games: which round, the
+## current series score, and a heads-up that scores are tougher — plus,
+## on the very first Finals game only, a line of flavor about the "other"
+## semifinal (never actually simulated beyond that one line).
+func _show_playoff_intro() -> void:
+	is_paused = true
+	var stage_name := "SEMIFINAL (Best of 3)" if SeasonManager.stage == "semifinal" else "FINALS (Best of 5)"
+	var series_line := "Series: You %d - %d %s" % [
+		SeasonManager.series_player_wins, SeasonManager.series_opponent_wins, current_team_name
+	]
+	var text := "%s\nvs %s\n%s\n\nPLAYOFF INTENSITY:\nScores are tougher now!" % [stage_name, current_team_name, series_line]
+
+	if SeasonManager.stage == "finals" and SeasonManager.series_player_wins == 0 and SeasonManager.series_opponent_wins == 0 and SeasonManager.other_semifinal_result != "":
+		text += "\n\n" + SeasonManager.other_semifinal_result
+
+	rally_announce_label.visible = true
+	walkoff_label.visible = false
+	rally_announce_label.text = text
+	rally_announcement.visible = true
+	await get_tree().create_timer(3.5).timeout
+	rally_announcement.visible = false
+	is_paused = false
 
 
 func _process(delta: float) -> void:
@@ -221,22 +257,127 @@ func _handle_time_up() -> void:
 	final_move_active = true
 
 
+func _box_score_text() -> String:
+	return "Doubles: %d   Triples: %d   Home Runs: %d\nGrand Slams: %d   MVP Blasts: %d   Longest Cascade: %d" % [
+		stat_doubles, stat_triples, stat_home_runs, stat_grand_slams, stat_mvp_blasts, stat_longest_cascade
+	]
+
+
+## Branches on the season's resulting stage after reporting this game's
+## result — an ordinary regular-season or in-progress-series result gets
+## the normal end screen; reaching a terminal outcome (won it all, got
+## eliminated, or missed the playoffs entirely) gets a distinct screen and
+## switches the button over to starting a fresh season instead of just
+## continuing this one.
 func _end_game() -> void:
 	game_over = true
 	var did_win := score >= opponent_score
+	var stage_before: String = SeasonManager.stage
+
+	SeasonManager.report_result(did_win)
+	var stage_after: String = SeasonManager.stage
+
+	match stage_after:
+		"champion":
+			await _show_champion_screen()
+		"eliminated_semis":
+			_show_terminal_screen("ELIMINATED", "Lost the Semifinal %d-%d to the %s." % [
+				SeasonManager.series_player_wins, SeasonManager.series_opponent_wins, current_team_name
+			])
+		"eliminated_finals":
+			_show_terminal_screen("ELIMINATED", "Lost the Finals %d-%d to the %s." % [
+				SeasonManager.series_player_wins, SeasonManager.series_opponent_wins, current_team_name
+			])
+		"missed_playoffs":
+			_show_terminal_screen("SEASON OVER", "Missed the playoffs at %d-%d." % [
+				SeasonManager.regular_wins, SeasonManager.regular_losses
+			])
+		_:
+			if stage_after != stage_before:
+				_show_advanced_screen(stage_after)
+			else:
+				_show_ongoing_screen(did_win, stage_before)
+
+
+## The game just clinched moving up a round (regular -> semifinal, or
+## semifinal -> finals) — that's a milestone in its own right, not just
+## another win, so it gets its own headline instead of being folded into
+## the ongoing-series display.
+func _show_advanced_screen(stage_after: String) -> void:
+	final_score_label.text = "Final Score: %d   %s: %d" % [score, current_team_name, opponent_score]
+	if stage_after == "semifinal":
+		end_title_label.text = "PLAYOFFS!"
+		stats_label.text = "%s\n\nRegular season: %d-%d. You're in the playoffs!" % [
+			_box_score_text(), SeasonManager.regular_wins, SeasonManager.regular_losses
+		]
+	else: # semifinal -> finals
+		end_title_label.text = "ADVANCE TO THE FINALS!"
+		stats_label.text = "%s\n\nWon the Semifinal! Next: the Finals vs the %s." % [
+			_box_score_text(), SeasonManager.RIVAL_NAME
+		]
+	play_again_button.text = "Play Again"
+	end_panel.visible = true
+
+
+func _show_ongoing_screen(did_win: bool, stage_before: String) -> void:
 	end_title_label.text = "YOU WIN!" if did_win else "GAME OVER"
 	final_score_label.text = "Final Score: %d   %s: %d" % [score, current_team_name, opponent_score]
 
-	SeasonManager.report_result(did_win)
-	var record: Dictionary = SeasonManager.get_record(current_team_name)
-	var totals: Dictionary = SeasonManager.get_season_totals()
-	stats_label.text = ("Doubles: %d   Triples: %d   Home Runs: %d\n" +
-		"Grand Slams: %d   MVP Blasts: %d   Longest Cascade: %d\n\n" +
-		"vs %s: %d-%d      Season: %d-%d") % [
-		stat_doubles, stat_triples, stat_home_runs,
-		stat_grand_slams, stat_mvp_blasts, stat_longest_cascade,
-		current_team_name, record.wins, record.losses, totals.wins, totals.losses
+	if stage_before == "semifinal" or stage_before == "finals":
+		var stage_name := "Semifinal" if stage_before == "semifinal" else "Finals"
+		stats_label.text = "%s\n\n%s series: You %d - %d %s" % [
+			_box_score_text(), stage_name, SeasonManager.series_player_wins, SeasonManager.series_opponent_wins, current_team_name
+		]
+	else:
+		var record: Dictionary = SeasonManager.get_record(current_team_name)
+		var totals: Dictionary = SeasonManager.get_season_totals()
+		stats_label.text = "%s\n\nvs %s: %d-%d      Season: %d-%d" % [
+			_box_score_text(), current_team_name, record.wins, record.losses, totals.wins, totals.losses
+		]
+
+	play_again_button.text = "Play Again"
+	end_panel.visible = true
+
+
+func _show_terminal_screen(title: String, message: String) -> void:
+	season_over = true
+	end_title_label.text = title
+	final_score_label.text = "Final Score: %d   %s: %d" % [score, current_team_name, opponent_score]
+	stats_label.text = "%s\n\n%s" % [_box_score_text(), message]
+	play_again_button.text = "New Season"
+	end_panel.visible = true
+
+
+## Champion celebration: bigger fireworks show than a Rally, a trophy, and
+## a fanfare, then hands off to the normal end panel (relabeled) with the
+## final Finals series score.
+func _show_champion_screen() -> void:
+	season_over = true
+	is_paused = true
+
+	rally_announce_label.visible = false
+	walkoff_label.visible = false
+	champion_label.visible = true
+	trophy_drawing.visible = true
+	rally_announcement.visible = true
+
+	_spawn_fireworks()
+	_spawn_fireworks()
+	_spawn_fireworks()
+	_play_rally_fanfare()
+	await get_tree().create_timer(4.0).timeout
+
+	rally_announcement.visible = false
+	champion_label.visible = false
+	trophy_drawing.visible = false
+	is_paused = false
+
+	end_title_label.text = "SEASON CHAMPION!"
+	final_score_label.text = "Final Score: %d   %s: %d" % [score, current_team_name, opponent_score]
+	stats_label.text = "%s\n\nWon the Finals %d-%d vs the %s!" % [
+		_box_score_text(), SeasonManager.series_player_wins, SeasonManager.series_opponent_wins, current_team_name
 	]
+	play_again_button.text = "New Season"
 	end_panel.visible = true
 
 
