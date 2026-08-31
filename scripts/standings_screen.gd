@@ -39,10 +39,27 @@ func _build_status_text() -> String:
 			return ""
 
 
+## A full league table: each team's own overall record this season (not
+## your record against them), plus your own record, sorted by wins with
+## RIVAL/PLAYOFFS tags — the Vipers always carry a qualifying record.
 func _build_teams_text() -> String:
-	var lines: Array = []
+	var entries: Array = []
 	for t in SeasonManager.teams:
-		var record: Dictionary = SeasonManager.get_record(t.name)
-		var marker := "  (RIVAL)" if t.rival else ""
-		lines.append("%s: %d-%d%s" % [t.name, record.wins, record.losses, marker])
+		var record: Dictionary = SeasonManager.get_league_record(t.name)
+		entries.append({"name": t.name, "wins": record.wins, "losses": record.losses, "rival": t.rival})
+	entries.append({
+		"name": "YOU", "wins": SeasonManager.regular_wins, "losses": SeasonManager.regular_losses, "rival": false
+	})
+
+	entries.sort_custom(func(a, b): return a.wins > b.wins)
+
+	var lines: Array = ["LEAGUE STANDINGS"]
+	for e in entries:
+		var tags: Array = []
+		if e.rival:
+			tags.append("RIVAL")
+		if e.wins >= SeasonManager.WINS_NEEDED_TO_QUALIFY:
+			tags.append("PLAYOFFS")
+		var tag_str := ("  (%s)" % ", ".join(tags)) if not tags.is_empty() else ""
+		lines.append("%s: %d-%d%s" % [e.name, e.wins, e.losses, tag_str])
 	return "\n".join(lines)

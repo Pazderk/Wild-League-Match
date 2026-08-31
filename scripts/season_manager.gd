@@ -39,6 +39,12 @@ var teams := [
 ]
 
 var records := {} # team_name -> {"wins": int, "losses": int}; regular season only
+# Each of the 8 teams' own overall record for the season (not the player's
+# record against them) — rolled once at the start of the season and fixed
+# for its duration, purely for standings-table flavor. The Vipers always
+# roll a qualifying record; nothing about the actual Semifinal/Finals
+# matchups depends on this, they're still fixed regardless.
+var league_records := {} # team_name -> {"wins": int, "losses": int}
 var current_team_index := 0
 var regular_games_played := 0
 var regular_wins := 0
@@ -59,6 +65,8 @@ var tutorial_seen := false
 func _ready() -> void:
 	_load()
 	_load_prefs()
+	if league_records.is_empty():
+		_roll_league_records()
 
 
 func mark_tutorial_seen() -> void:
@@ -182,15 +190,44 @@ func _report_series_result(did_win: bool, wins_needed: int, advance_stage: Strin
 
 
 func _roll_other_semifinal_flavor() -> void:
+	# Prefer a "loser" that actually qualified per this season's rolled
+	# league standings, so the flavor line doesn't casually claim a
+	# non-playoff team was in a semifinal. Falls back to anyone if this
+	# season's rolls happened to leave no other qualifier.
+	var qualified := []
 	var candidates := []
 	for t in teams:
-		if t.name != SEMIFINAL_OPPONENT_NAME and t.name != RIVAL_NAME:
-			candidates.append(t.name)
-	var loser: String = candidates[randi() % candidates.size()]
+		if t.name == SEMIFINAL_OPPONENT_NAME or t.name == RIVAL_NAME:
+			continue
+		candidates.append(t.name)
+		var record: Dictionary = get_league_record(t.name)
+		if record.wins >= WINS_NEEDED_TO_QUALIFY:
+			qualified.append(t.name)
+
+	var pool: Array = qualified if not qualified.is_empty() else candidates
+	var loser: String = pool[randi() % pool.size()]
 	var series_scores := ["2-0", "2-1"]
 	other_semifinal_result = "In the other semifinal, the %s defeated the %s %s." % [
 		RIVAL_NAME, loser, series_scores[randi() % series_scores.size()]
 	]
+
+
+## Each team's own overall record for the season (standings-table flavor,
+## not the player's record against them) — the Vipers always roll a
+## qualifying record so they're guaranteed to make the playoffs.
+func _roll_league_records() -> void:
+	league_records = {}
+	for t in teams:
+		var wins: int
+		if t.rival:
+			wins = randi_range(WINS_NEEDED_TO_QUALIFY, REGULAR_SEASON_GAMES)
+		else:
+			wins = randi_range(0, REGULAR_SEASON_GAMES)
+		league_records[t.name] = {"wins": wins, "losses": REGULAR_SEASON_GAMES - wins}
+
+
+func get_league_record(team_name: String) -> Dictionary:
+	return league_records.get(team_name, {"wins": 0, "losses": 0})
 
 
 func get_record(team_name: String) -> Dictionary:
@@ -216,6 +253,7 @@ func reset_season() -> void:
 	series_player_wins = 0
 	series_opponent_wins = 0
 	other_semifinal_result = ""
+	_roll_league_records()
 	_save()
 
 
@@ -230,6 +268,7 @@ func _save() -> void:
 		"series_player_wins": series_player_wins,
 		"series_opponent_wins": series_opponent_wins,
 		"other_semifinal_result": other_semifinal_result,
+		"league_records": league_records,
 	}
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
@@ -258,6 +297,7 @@ func _load() -> void:
 	series_player_wins = parsed.get("series_player_wins", 0)
 	series_opponent_wins = parsed.get("series_opponent_wins", 0)
 	other_semifinal_result = parsed.get("other_semifinal_result", "")
+	league_records = parsed.get("league_records", {})
 
 	# A terminal stage is saved the instant it's computed, not when the
 	# player clicks "New Season" — if the app closed before that click, the
