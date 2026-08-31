@@ -17,6 +17,7 @@ extends Node
 ## full reset.
 
 const SAVE_PATH := "user://season_save.json"
+const PREFS_PATH := "user://prefs.json"
 
 const REGULAR_SEASON_GAMES := 8
 const WINS_NEEDED_TO_QUALIFY := 5
@@ -50,9 +51,41 @@ var series_player_wins := 0
 var series_opponent_wins := 0
 var other_semifinal_result := ""
 
+# Kept in a separate small file from season_save.json since it's a one-time
+# preference, not season progress — reset_season() must never touch it.
+var tutorial_seen := false
+
 
 func _ready() -> void:
 	_load()
+	_load_prefs()
+
+
+func mark_tutorial_seen() -> void:
+	tutorial_seen = true
+	_save_prefs()
+
+
+func _save_prefs() -> void:
+	var f := FileAccess.open(PREFS_PATH, FileAccess.WRITE)
+	if f:
+		f.store_string(JSON.stringify({"tutorial_seen": tutorial_seen}))
+		f.close()
+
+
+func _load_prefs() -> void:
+	if not FileAccess.file_exists(PREFS_PATH):
+		return
+	var f := FileAccess.open(PREFS_PATH, FileAccess.READ)
+	if not f:
+		return
+	var text := f.get_as_text()
+	f.close()
+
+	var parsed = JSON.parse_string(text)
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return
+	tutorial_seen = parsed.get("tutorial_seen", false)
 
 
 func is_playoff_stage() -> bool:

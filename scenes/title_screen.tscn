@@ -39,3 +39,19 @@ offset_right = 460.0
 offset_bottom = 660.0
 theme_override_font_sizes/font_size = 24
 text = "Start Season"
+
+[node name="StandingsButton" type="Button" parent="."]
+offset_left = 260.0
+offset_top = 680.0
+offset_right = 460.0
+offset_bottom = 730.0
+theme_override_font_sizes/font_size = 20
+text = "Standings"
+
+[node name="HowToPlayButton" type="Button" parent="."]
+offset_left = 260.0
+offset_top = 750.0
+offset_right = 460.0
+offset_bottom = 800.0
+theme_override_font_sizes/font_size = 20
+text = "How to Play"

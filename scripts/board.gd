@@ -77,11 +77,15 @@ const TileScene := preload("res://scenes/tile.tscn")
 @onready var final_score_label: Label = $EndPanel/FinalScoreLabel
 @onready var stats_label: Label = $EndPanel/StatsLabel
 @onready var play_again_button: Button = $EndPanel/PlayAgainButton
+@onready var pause_button: Button = $PauseButton
+@onready var pause_overlay: Control = $PauseOverlay
+@onready var resume_button: Button = $PauseOverlay/ResumeButton
 
 var grid: Array = [] # grid[x][y] -> Tile node
 var selected_tile: Vector2i = Vector2i(-1, -1)
 var is_busy := false
 var is_paused := false
+var is_user_paused := false
 var game_over := false
 var score := 0
 
@@ -149,6 +153,10 @@ func _ready() -> void:
 			get_tree().reload_current_scene()
 	)
 
+	pause_overlay.visible = false
+	pause_button.pressed.connect(_on_pause_pressed)
+	resume_button.pressed.connect(_on_resume_pressed)
+
 	if SeasonManager.is_playoff_stage():
 		await _show_playoff_intro()
 
@@ -181,7 +189,7 @@ func _show_playoff_intro() -> void:
 
 
 func _process(delta: float) -> void:
-	if game_over or is_paused:
+	if game_over or is_paused or is_user_paused:
 		return
 
 	if time_left > 0.0:
@@ -228,6 +236,21 @@ func _tick_decoy_score() -> void:
 	var gain: int = int(max(15.0, deficit * randf_range(0.6, 1.4)))
 	decoy_score += gain
 	opponent_label.text = "%s: %d" % [current_team_name, decoy_score]
+
+
+## A manual pause, distinct from the internal `is_paused` used to freeze
+## the game during announcements — ignored while one of those is already
+## showing (or after the game's over) so the two can't collide.
+func _on_pause_pressed() -> void:
+	if game_over or rally_announcement.visible:
+		return
+	is_user_paused = true
+	pause_overlay.visible = true
+
+
+func _on_resume_pressed() -> void:
+	is_user_paused = false
+	pause_overlay.visible = false
 
 
 func _update_time_label() -> void:
@@ -416,7 +439,7 @@ func _random_type_without_match(x: int, y: int) -> int:
 
 
 func _on_tile_clicked(grid_pos: Vector2i) -> void:
-	if game_over or is_busy or is_paused:
+	if game_over or is_busy or is_paused or is_user_paused:
 		return
 
 	if selected_tile == Vector2i(-1, -1):

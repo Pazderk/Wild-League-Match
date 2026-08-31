@@ -60,6 +60,13 @@ offset_bottom = 813.0
 theme_override_font_sizes/font_size = 28
 text = "Time: 1:00"
 
+[node name="PauseButton" type="Button" parent="."]
+offset_left = 600.0
+offset_top = 778.0
+offset_right = 700.0
+offset_bottom = 813.0
+text = "Pause"
+
 [node name="BigPlayLabel" type="Label" parent="."]
 visible = false
 offset_left = 60.0
@@ -168,6 +175,36 @@ CHAMPION!"
 [node name="FireworksLayer" type="Node2D" parent="RallyAnnouncement"]
 
 [node name="RallyAudio" type="AudioStreamPlayer" parent="RallyAnnouncement"]
+
+[node name="PauseOverlay" type="Control" parent="."]
+visible = false
+offset_right = 720.0
+offset_bottom = 960.0
+mouse_filter = 1
+
+[node name="PauseDimmer" type="ColorRect" parent="PauseOverlay"]
+offset_right = 720.0
+offset_bottom = 960.0
+color = Color(0, 0, 0, 0.7)
+
+[node name="PausedLabel" type="Label" parent="PauseOverlay"]
+offset_left = 10.0
+offset_top = 380.0
+offset_right = 710.0
+offset_bottom = 460.0
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_font_sizes/font_size = 56
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "PAUSED"
+
+[node name="ResumeButton" type="Button" parent="PauseOverlay"]
+offset_left = 260.0
+offset_top = 500.0
+offset_right = 460.0
+offset_bottom = 560.0
+theme_override_font_sizes/font_size = 24
+text = "Resume"
 
 [node name="EndPanel" type="Panel" parent="."]
 visible = false
