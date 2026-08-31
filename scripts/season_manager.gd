@@ -225,3 +225,10 @@ func _load() -> void:
 	series_player_wins = parsed.get("series_player_wins", 0)
 	series_opponent_wins = parsed.get("series_opponent_wins", 0)
 	other_semifinal_result = parsed.get("other_semifinal_result", "")
+
+	# A terminal stage is saved the instant it's computed, not when the
+	# player clicks "New Season" — if the app closed before that click, the
+	# season is still genuinely over, so start fresh rather than loading
+	# back into a dead stage no result screen will ever show again.
+	if is_season_over():
+		reset_season()
