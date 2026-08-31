@@ -66,9 +66,11 @@ var player_seed_index := -1
 var semifinal_opponent_name := ""
 var finals_opponent_name := ""
 
-# Kept in a separate small file from season_save.json since it's a one-time
-# preference, not season progress — reset_season() must never touch it.
+# Kept in a separate small file from season_save.json since these are
+# standing preferences, not season progress — reset_season() must never
+# touch them.
 var tutorial_seen := false
+var team_name := "YOU"
 
 
 func _ready() -> void:
@@ -83,10 +85,18 @@ func mark_tutorial_seen() -> void:
 	_save_prefs()
 
 
+## Blank (or whitespace-only) falls back to the "YOU" default rather than
+## saving an empty label.
+func set_team_name(new_name: String) -> void:
+	var trimmed := new_name.strip_edges()
+	team_name = trimmed if trimmed != "" else "YOU"
+	_save_prefs()
+
+
 func _save_prefs() -> void:
 	var f := FileAccess.open(PREFS_PATH, FileAccess.WRITE)
 	if f:
-		f.store_string(JSON.stringify({"tutorial_seen": tutorial_seen}))
+		f.store_string(JSON.stringify({"tutorial_seen": tutorial_seen, "team_name": team_name}))
 		f.close()
 
 
@@ -103,6 +113,7 @@ func _load_prefs() -> void:
 	if typeof(parsed) != TYPE_DICTIONARY:
 		return
 	tutorial_seen = parsed.get("tutorial_seen", false)
+	team_name = parsed.get("team_name", "YOU")
 
 
 func is_playoff_stage() -> bool:
@@ -170,8 +181,18 @@ func _report_regular_result(did_win: bool) -> void:
 		regular_losses += 1
 	regular_games_played += 1
 
+	# Your head-to-head result is that team's result for the week too — a
+	# loss for them if you won, a win for them if you didn't.
+	if not league_records.has(team.name):
+		league_records[team.name] = {"wins": 0, "losses": 0}
+	if did_win:
+		league_records[team.name].losses += 1
+	else:
+		league_records[team.name].wins += 1
+
 	# The 6 teams not facing the player this week play each other too, so
-	# the whole league's standings evolve together, week by week.
+	# the whole league's standings evolve together, week by week — all 7
+	# other teams' records move by exactly 1 every week.
 	_simulate_other_teams_week(team.name)
 
 	current_team_index = (current_team_index + 1) % teams.size()
@@ -207,8 +228,8 @@ func compute_standings() -> Array:
 	var entries: Array = []
 	for t in teams:
 		var r: Dictionary = get_league_record(t.name)
-		entries.append({"name": t.name, "wins": r.wins, "losses": r.losses, "rival": t.rival})
-	entries.append({"name": "YOU", "wins": regular_wins, "losses": regular_losses, "rival": false})
+		entries.append({"name": t.name, "wins": r.wins, "losses": r.losses, "rival": t.rival, "is_you": false})
+	entries.append({"name": team_name, "wins": regular_wins, "losses": regular_losses, "rival": false, "is_you": true})
 	entries.sort_custom(_compare_seed_entries)
 	return entries
 
@@ -224,7 +245,7 @@ func _finish_regular_season() -> void:
 
 	var player_seed := -1
 	for i in range(top4.size()):
-		if top4[i].name == "YOU":
+		if top4[i].is_you:
 			player_seed = i
 			break
 
@@ -294,10 +315,10 @@ func _reset_league_records() -> void:
 
 ## Every week, the 6 other teams not facing the player are randomly paired
 ## into 3 games and simulated, so the standings evolve organically instead
-## of being pre-rolled. Since each of the 7 other teams sits out (facing the
-## player instead) 2 of the 14 weeks, their season totals will typically add
-## up to 12 games, not 14 — a small, accepted quirk of not tracking a full
-## fixture list.
+## of being pre-rolled. Combined with the head-to-head result recorded just
+## above for the 7th team (the one facing the player), all 7 other teams'
+## records move by exactly 1 every week, totaling 14 games each by season's
+## end.
 func _simulate_other_teams_week(exclude_name: String) -> void:
 	var others: Array = []
 	for t in teams:

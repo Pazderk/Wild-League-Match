@@ -3,12 +3,23 @@ extends Node2D
 @onready var status_label: Label = $StatusLabel
 @onready var teams_label: Label = $TeamsLabel
 @onready var back_button: Button = $BackButton
+@onready var next_game_button: Button = $NextGameButton
 
 
 func _ready() -> void:
 	status_label.text = _build_status_text()
 	teams_label.text = _build_teams_text()
 	back_button.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/title_screen.tscn"))
+
+	if SeasonManager.is_season_over():
+		next_game_button.text = "New Season"
+		next_game_button.pressed.connect(func():
+			SeasonManager.reset_season()
+			get_tree().change_scene_to_file("res://scenes/title_screen.tscn")
+		)
+	else:
+		next_game_button.text = "Next Game"
+		next_game_button.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/board.tscn"))
 
 
 func _build_status_text() -> String:

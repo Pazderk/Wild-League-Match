@@ -40,10 +40,18 @@ theme_override_font_sizes/font_size = 20
 vertical_alignment = 0
 text = "Team records"
 
-[node name="BackButton" type="Button" parent="."]
-offset_left = 260.0
+[node name="NextGameButton" type="Button" parent="."]
+offset_left = 100.0
 offset_top = 850.0
-offset_right = 460.0
+offset_right = 340.0
 offset_bottom = 910.0
-theme_override_font_sizes/font_size = 24
+theme_override_font_sizes/font_size = 22
+text = "Next Game"
+
+[node name="BackButton" type="Button" parent="."]
+offset_left = 380.0
+offset_top = 850.0
+offset_right = 620.0
+offset_bottom = 910.0
+theme_override_font_sizes/font_size = 22
 text = "Back to Title"

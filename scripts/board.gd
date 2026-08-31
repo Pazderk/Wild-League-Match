@@ -356,7 +356,7 @@ func _show_advanced_screen(stage_after: String) -> void:
 		stats_label.text = "%s\n\nWon the Semifinal! Next: the Finals vs the %s." % [
 			_box_score_text(), SeasonManager.finals_opponent_name
 		]
-	play_again_button.text = "Play Again"
+	play_again_button.text = "Next Game"
 	end_panel.visible = true
 
 
@@ -376,7 +376,7 @@ func _show_ongoing_screen(did_win: bool, stage_before: String) -> void:
 			_box_score_text(), current_team_name, record.wins, record.losses, totals.wins, totals.losses
 		]
 
-	play_again_button.text = "Play Again"
+	play_again_button.text = "Next Game"
 	end_panel.visible = true
 
 
