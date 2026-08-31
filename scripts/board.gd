@@ -144,7 +144,9 @@ func _ready() -> void:
 	play_again_button.pressed.connect(func():
 		if season_over:
 			SeasonManager.reset_season()
-		get_tree().reload_current_scene()
+			get_tree().change_scene_to_file("res://scenes/title_screen.tscn")
+		else:
+			get_tree().reload_current_scene()
 	)
 
 	if SeasonManager.is_playoff_stage():

@@ -121,13 +121,13 @@ func _report_regular_result(did_win: bool) -> void:
 	regular_games_played += 1
 	current_team_index = (current_team_index + 1) % teams.size()
 
-	# Mathematically eliminated from qualifying, regardless of games left.
-	if regular_losses > REGULAR_SEASON_GAMES - WINS_NEEDED_TO_QUALIFY:
+	# Qualify (or get eliminated) the instant it's mathematically decided,
+	# rather than playing out remaining regular-season games that no longer
+	# change anything.
+	if regular_wins >= WINS_NEEDED_TO_QUALIFY:
+		stage = "semifinal"
+	elif regular_losses > REGULAR_SEASON_GAMES - WINS_NEEDED_TO_QUALIFY:
 		stage = "missed_playoffs"
-		return
-
-	if regular_games_played >= REGULAR_SEASON_GAMES:
-		stage = "semifinal" if regular_wins >= WINS_NEEDED_TO_QUALIFY else "missed_playoffs"
 
 
 func _report_series_result(did_win: bool, wins_needed: int, advance_stage: String, eliminate_stage: String) -> void:
