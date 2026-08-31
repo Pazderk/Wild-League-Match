@@ -46,9 +46,9 @@ const DECOY_TICK_MAX := 5.0
 
 # Consecutive successful swaps build a small bonus on top of everything else;
 # a whiffed swap or a few idle seconds resets it.
-const HOT_HAND_DECAY_IDLE_SECONDS := 3.0
-const HOT_HAND_MAX_STREAK := 8
-const HOT_HAND_BONUS_PER_STACK := 0.1
+const HITTING_STREAK_DECAY_IDLE_SECONDS := 2.0
+const HITTING_STREAK_MAX := 3
+const HITTING_STREAK_BONUS_PER_STACK := 0.1
 
 # Walk-off celebration: real-world seconds the slow-motion beat lasts,
 # regardless of the slow-mo time scale itself.
@@ -61,7 +61,7 @@ const TileScene := preload("res://scenes/tile.tscn")
 @onready var opponent_label: Label = $TargetLabel
 @onready var time_label: Label = $TimeLabel
 @onready var big_play_label: Label = $BigPlayLabel
-@onready var hot_hand_label: Label = $HotHandLabel
+@onready var hitting_streak_label: Label = $HittingStreakLabel
 @onready var tiles_container: Node2D = $TilesContainer
 @onready var rally_bar: ProgressBar = $RallyBar
 @onready var rally_status_label: Label = $RallyStatusLabel
@@ -72,11 +72,14 @@ const TileScene := preload("res://scenes/tile.tscn")
 @onready var trophy_drawing: Node2D = $RallyAnnouncement/TrophyDrawing
 @onready var fireworks_layer: Node2D = $RallyAnnouncement/FireworksLayer
 @onready var rally_audio: AudioStreamPlayer = $RallyAnnouncement/RallyAudio
+@onready var sfx_audio: AudioStreamPlayer = $SfxAudio
 @onready var end_panel: Panel = $EndPanel
 @onready var end_title_label: Label = $EndPanel/EndTitleLabel
 @onready var final_score_label: Label = $EndPanel/FinalScoreLabel
 @onready var stats_label: Label = $EndPanel/StatsLabel
 @onready var play_again_button: Button = $EndPanel/PlayAgainButton
+@onready var standings_button_end: Button = $EndPanel/StandingsButtonEnd
+@onready var title_button_end: Button = $EndPanel/TitleButtonEnd
 @onready var pause_button: Button = $PauseButton
 @onready var pause_overlay: Control = $PauseOverlay
 @onready var resume_button: Button = $PauseOverlay/ResumeButton
@@ -108,8 +111,8 @@ var decoy_ceiling := 0
 var decoy_tick_timer := 0.0
 var decoy_next_tick := 0.0
 
-var hot_hand_streak := 0
-var hot_hand_idle_timer := 0.0
+var hitting_streak_count := 0
+var hitting_streak_idle_timer := 0.0
 
 var stat_doubles := 0
 var stat_triples := 0
@@ -117,6 +120,9 @@ var stat_home_runs := 0
 var stat_grand_slams := 0
 var stat_mvp_blasts := 0
 var stat_longest_cascade := 0
+
+var pop_sound: AudioStreamWAV
+var whiff_sound: AudioStreamWAV
 
 
 func _ready() -> void:
@@ -136,7 +142,7 @@ func _ready() -> void:
 	rally_bar.value = 0.0
 	rally_status_label.visible = false
 	rally_announcement.visible = false
-	hot_hand_label.visible = false
+	hitting_streak_label.visible = false
 	champion_label.visible = false
 	trophy_drawing.visible = false
 
@@ -145,6 +151,9 @@ func _ready() -> void:
 	generator.buffer_length = 3.0
 	rally_audio.stream = generator
 
+	pop_sound = _build_pop_wav()
+	whiff_sound = _build_whiff_wav()
+
 	play_again_button.pressed.connect(func():
 		if season_over:
 			SeasonManager.reset_season()
@@ -152,6 +161,8 @@ func _ready() -> void:
 		else:
 			get_tree().reload_current_scene()
 	)
+	standings_button_end.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/standings_screen.tscn"))
+	title_button_end.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/title_screen.tscn"))
 
 	pause_overlay.visible = false
 	pause_button.pressed.connect(_on_pause_pressed)
@@ -200,7 +211,7 @@ func _process(delta: float) -> void:
 			if time_left <= OPPONENT_REVEAL_TIME_LEFT:
 				opponent_revealed = true
 				opponent_label.text = "%s: %d" % [current_team_name, opponent_score]
-				_show_big_play("FINAL STRETCH!")
+				_show_big_play("7TH INNING STRETCH!")
 			else:
 				decoy_tick_timer += delta
 				if decoy_tick_timer >= decoy_next_tick:
@@ -208,10 +219,10 @@ func _process(delta: float) -> void:
 					decoy_next_tick = randf_range(DECOY_TICK_MIN, DECOY_TICK_MAX)
 					_tick_decoy_score()
 
-		hot_hand_idle_timer += delta
-		if hot_hand_idle_timer >= HOT_HAND_DECAY_IDLE_SECONDS and hot_hand_streak > 0:
-			hot_hand_streak = 0
-			_update_hot_hand_label()
+		hitting_streak_idle_timer += delta
+		if hitting_streak_idle_timer >= HITTING_STREAK_DECAY_IDLE_SECONDS and hitting_streak_count > 0:
+			hitting_streak_count = 0
+			_update_hitting_streak_label()
 
 	if time_left <= 0.0 and not is_busy and not time_up_handled:
 		time_up_handled = true
@@ -246,11 +257,13 @@ func _on_pause_pressed() -> void:
 		return
 	is_user_paused = true
 	pause_overlay.visible = true
+	tiles_container.visible = false
 
 
 func _on_resume_pressed() -> void:
 	is_user_paused = false
 	pause_overlay.visible = false
+	tiles_container.visible = true
 
 
 func _update_time_label() -> void:
@@ -471,7 +484,7 @@ func _is_adjacent(a: Vector2i, b: Vector2i) -> bool:
 ## no ordinary color-match, which is what makes these feel deliberate rather
 ## than incidental. An MVP Ball (color bomb) additionally targets whichever
 ## gem color it's swapped into (or clears the whole board if swapped with
-## another MVP Ball). A successful swap builds the Hot Hand streak; a whiff
+## another MVP Ball). A successful swap builds the Hitting Streak; a whiff
 ## resets it.
 func _try_swap(a: Vector2i, b: Vector2i) -> void:
 	is_busy = true
@@ -492,16 +505,17 @@ func _try_swap(a: Vector2i, b: Vector2i) -> void:
 	if match_data.positions.is_empty():
 		await get_tree().create_timer(0.15).timeout
 		_swap_tiles(a, b) # no match and no special activated, revert
-		hot_hand_streak = 0
-		_update_hot_hand_label()
+		_play_whiff()
+		hitting_streak_count = 0
+		_update_hitting_streak_label()
 		is_busy = false
 	else:
-		hot_hand_streak = min(hot_hand_streak + 1, HOT_HAND_MAX_STREAK)
-		hot_hand_idle_timer = 0.0
-		_update_hot_hand_label()
-		var hot_hand_multiplier: float = 1.0 + HOT_HAND_BONUS_PER_STACK * hot_hand_streak
+		hitting_streak_count = min(hitting_streak_count + 1, HITTING_STREAK_MAX)
+		hitting_streak_idle_timer = 0.0
+		_update_hitting_streak_label()
+		var hitting_streak_multiplier: float = 1.0 + HITTING_STREAK_BONUS_PER_STACK * hitting_streak_count
 
-		await _resolve_matches(match_data, forced_label, hot_hand_multiplier)
+		await _resolve_matches(match_data, forced_label, hitting_streak_multiplier)
 		is_busy = false
 
 		if final_move_active and not game_over:
@@ -511,10 +525,10 @@ func _try_swap(a: Vector2i, b: Vector2i) -> void:
 			await _reshuffle_board()
 
 
-func _update_hot_hand_label() -> void:
-	hot_hand_label.visible = hot_hand_streak >= 2
-	if hot_hand_streak >= 2:
-		hot_hand_label.text = "HOT HAND x%d" % hot_hand_streak
+func _update_hitting_streak_label() -> void:
+	hitting_streak_label.visible = hitting_streak_count >= 2
+	if hitting_streak_count >= 2:
+		hitting_streak_label.text = "HITTING STREAK x%d" % hitting_streak_count
 
 
 func _trigger_color_bomb(bomb_pos: Vector2i, partner_pos: Vector2i, positions: Dictionary) -> void:
@@ -603,7 +617,7 @@ func _make_run(run_len: int, orientation: String, start_x: int, start_y: int, po
 ## If a Home Run, Grand Slam Rally, or MVP Blast is what newly pushes the
 ## score past the opponent's current live score, that's a Walk-off Win and
 ## ends the game immediately instead of continuing to chain further.
-func _resolve_matches(match_data: Dictionary, forced_label: String = "", hot_hand_multiplier: float = 1.0) -> void:
+func _resolve_matches(match_data: Dictionary, forced_label: String = "", hitting_streak_multiplier: float = 1.0) -> void:
 	var chain_count := 1
 
 	while not match_data.positions.is_empty():
@@ -666,7 +680,7 @@ func _resolve_matches(match_data: Dictionary, forced_label: String = "", hot_han
 			positions.erase(spawn_pos)
 
 		var chain_multiplier: int = min(chain_count, MAX_CHAIN_MULTIPLIER)
-		var base_points: int = int(BASE_POINTS * positions.size() * tier_multiplier * chain_multiplier * hot_hand_multiplier)
+		var base_points: int = int(BASE_POINTS * positions.size() * tier_multiplier * chain_multiplier * hitting_streak_multiplier)
 		var rally_active := rally_time_left > 0.0
 		var score_before_step := score
 		score += base_points * (RALLY_MULTIPLIER if rally_active else 1)
@@ -684,6 +698,9 @@ func _resolve_matches(match_data: Dictionary, forced_label: String = "", hot_han
 			rally_just_started = true
 			stat_grand_slams += 1
 			await _start_rally()
+
+		var pop_pitch: float = clamp(1.0 + 0.15 * (chain_count - 1) + 0.08 * (tier_multiplier - 1), 1.0, 2.2)
+		_play_pop(pop_pitch)
 
 		for pos in positions:
 			grid[pos.x][pos.y].play_clear_effect()
@@ -842,6 +859,55 @@ func _burst_at(origin: Vector2) -> void:
 ## Synthesizes a short original ascending-fanfare motif at runtime — a
 ## placeholder "crowd hype" cue, not a reproduction of any existing
 ## recorded "Charge!" sound. Swap in a licensed SFX later for the real thing.
+## Short synthesized SFX (not recorded samples, same as the fanfare below —
+## swap in real audio files later just by pointing sfx_audio.stream at a
+## loaded AudioStreamWAV/MP3 resource instead of one of these). Pre-baked
+## once at startup rather than regenerated per play since they trigger on
+## every single swap; pitch_scale varies the pop's pitch per cascade/tier
+## without needing to rebuild the clip.
+func _build_pop_wav() -> AudioStreamWAV:
+	return _synth_wav([{"freq": 700.0, "dur": 0.10}])
+
+
+func _build_whiff_wav() -> AudioStreamWAV:
+	return _synth_wav([{"freq": 220.0, "dur": 0.08}, {"freq": 150.0, "dur": 0.10}])
+
+
+func _synth_wav(notes: Array) -> AudioStreamWAV:
+	const MIX_RATE := 22050.0
+	var bytes := PackedByteArray()
+	for note in notes:
+		var freq: float = note.freq
+		var frame_count := int(MIX_RATE * note.dur)
+		var start := bytes.size()
+		bytes.resize(start + frame_count * 2)
+		for i in range(frame_count):
+			var t := i / MIX_RATE
+			var value := 0.6 * sin(TAU * freq * t) + 0.25 * sin(TAU * freq * 2.0 * t)
+			var envelope: float = pow(1.0 - float(i) / frame_count, 1.3)
+			var sample_int := int(clamp(value * envelope, -1.0, 1.0) * 32767.0)
+			bytes.encode_s16(start + i * 2, sample_int)
+
+	var wav := AudioStreamWAV.new()
+	wav.format = AudioStreamWAV.FORMAT_16_BITS
+	wav.mix_rate = int(MIX_RATE)
+	wav.stereo = false
+	wav.data = bytes
+	return wav
+
+
+func _play_pop(pitch_scale: float = 1.0) -> void:
+	sfx_audio.stream = pop_sound
+	sfx_audio.pitch_scale = pitch_scale
+	sfx_audio.play()
+
+
+func _play_whiff() -> void:
+	sfx_audio.stream = whiff_sound
+	sfx_audio.pitch_scale = 1.0
+	sfx_audio.play()
+
+
 func _play_rally_fanfare() -> void:
 	rally_audio.play()
 	var playback: AudioStreamGeneratorPlayback = rally_audio.get_stream_playback()

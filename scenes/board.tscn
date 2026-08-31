@@ -39,15 +39,15 @@ theme_override_font_sizes/font_size = 20
 horizontal_alignment = 2
 text = "RALLY! x2 (10s)"
 
-[node name="HotHandLabel" type="Label" parent="."]
+[node name="HittingStreakLabel" type="Label" parent="."]
 visible = false
 offset_left = 20.0
 offset_top = 88.0
-offset_right = 300.0
+offset_right = 420.0
 offset_bottom = 114.0
 theme_override_colors/font_color = Color(1, 0.55, 0.15, 1)
-theme_override_font_sizes/font_size = 22
-text = "HOT HAND x2"
+theme_override_font_sizes/font_size = 20
+text = "HITTING STREAK x3"
 
 [node name="TilesContainer" type="Node2D" parent="."]
 position = Vector2(20, 124)
@@ -59,6 +59,8 @@ offset_right = 400.0
 offset_bottom = 813.0
 theme_override_font_sizes/font_size = 28
 text = "Time: 1:00"
+
+[node name="SfxAudio" type="AudioStreamPlayer" parent="."]
 
 [node name="PauseButton" type="Button" parent="."]
 offset_left = 600.0
@@ -243,9 +245,25 @@ Grand Slams: 0   MVP Blasts: 0   Longest Cascade: 0
 
 vs Team: 0-0      Season: 0-0"
 
-[node name="PlayAgainButton" type="Button" parent="EndPanel"]
-offset_left = 200.0
+[node name="StandingsButtonEnd" type="Button" parent="EndPanel"]
+offset_left = 20.0
 offset_top = 305.0
-offset_right = 380.0
+offset_right = 190.0
+offset_bottom = 355.0
+theme_override_font_sizes/font_size = 18
+text = "Standings"
+
+[node name="PlayAgainButton" type="Button" parent="EndPanel"]
+offset_left = 205.0
+offset_top = 305.0
+offset_right = 395.0
 offset_bottom = 355.0
 text = "Play Again"
+
+[node name="TitleButtonEnd" type="Button" parent="EndPanel"]
+offset_left = 410.0
+offset_top = 305.0
+offset_right = 580.0
+offset_bottom = 355.0
+theme_override_font_sizes/font_size = 18
+text = "Title"
