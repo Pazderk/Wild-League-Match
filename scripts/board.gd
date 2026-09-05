@@ -328,22 +328,30 @@ func _box_score_text() -> String:
 	]
 
 
-## Branches on the season's resulting stage after reporting this game's
-## result — an ordinary regular-season or in-progress-series result gets
+func _hide_powerup_buttons() -> void:
+	powerup_rows_button.visible = false
+	powerup_columns_button.visible = false
+	powerup_box_button.visible = false
+
+
+## Reports this game's result to SeasonManager (and with it, the disk save)
+## immediately — never gated behind a celebration animation. A Walk-off Win
+## used to defer this behind its ~4-second real-time celebration, which
+## meant the result wasn't actually persisted until that celebration
+## finished; closing the app during it would have silently lost the win.
+## Returns the resulting stage so the caller can decide what to show.
+func _record_result(did_win: bool) -> String:
+	SeasonManager.report_result(did_win)
+	return SeasonManager.stage
+
+
+## Branches on the season's resulting stage after this game's result was
+## recorded — an ordinary regular-season or in-progress-series result gets
 ## the normal end screen; reaching a terminal outcome (won it all, got
 ## eliminated, or missed the playoffs entirely) gets a distinct screen and
 ## switches the button over to starting a fresh season instead of just
 ## continuing this one.
-func _end_game() -> void:
-	game_over = true
-	powerup_rows_button.visible = false
-	powerup_columns_button.visible = false
-	powerup_box_button.visible = false
-	var did_win := score >= opponent_score
-	var stage_before: String = SeasonManager.stage
-
-	SeasonManager.report_result(did_win)
-	var stage_after: String = SeasonManager.stage
+func _show_result_screen(stage_before: String, stage_after: String, did_win: bool) -> void:
 	var earned_powerup: String = SeasonManager.last_powerup_earned
 
 	match stage_after:
@@ -369,6 +377,15 @@ func _end_game() -> void:
 
 	if earned_powerup != "":
 		stats_label.text += "\n\n🔥 3-GAME WIN STREAK! Earned a %s power-up!" % POWERUP_DISPLAY_NAMES.get(earned_powerup, earned_powerup)
+
+
+func _end_game() -> void:
+	game_over = true
+	_hide_powerup_buttons()
+	var did_win := score >= opponent_score
+	var stage_before: String = SeasonManager.stage
+	var stage_after: String = _record_result(did_win)
+	await _show_result_screen(stage_before, stage_after, did_win)
 
 
 ## The game just clinched moving up a round (regular -> semifinal, or
@@ -548,6 +565,15 @@ func _try_swap(a: Vector2i, b: Vector2i) -> void:
 		hitting_streak_count = 0
 		_update_hitting_streak_label()
 		is_busy = false
+
+		# "FINAL CHANCE! One swap to win it" means exactly one — whiffing it
+		# still ends the game, same as landing a match would. Previously
+		# only the match branch below consumed final_move_active, so a
+		# whiffed final swap left the game hanging, open to unlimited
+		# further attempts instead of the one promised.
+		if final_move_active and not game_over:
+			final_move_active = false
+			_end_game()
 	else:
 		hitting_streak_count = min(hitting_streak_count + 1, HITTING_STREAK_MAX)
 		hitting_streak_idle_timer = 0.0
@@ -938,6 +964,16 @@ func _start_rally() -> void:
 func _trigger_walkoff() -> void:
 	is_paused = true
 	game_over = true
+	_hide_powerup_buttons()
+
+	# Record the result now, before the celebration — not after it. The
+	# celebration is a good ~4 real seconds (deliberately unaffected by the
+	# bot/slow-mo time scale); gating the season save behind it meant a
+	# closed app (or, in testing, code that treats game_over as "fully
+	# concluded") could lose a Walk-off win that never actually got saved.
+	var did_win := score >= opponent_score
+	var stage_before: String = SeasonManager.stage
+	var stage_after: String = _record_result(did_win)
 
 	rally_announce_label.visible = false
 	walkoff_label.visible = true
@@ -955,7 +991,7 @@ func _trigger_walkoff() -> void:
 	rally_announcement.visible = false
 	walkoff_label.visible = false
 	is_paused = false
-	_end_game()
+	await _show_result_screen(stage_before, stage_after, did_win)
 
 
 func _spawn_fireworks() -> void:
