@@ -69,6 +69,7 @@ const TileScene := preload("res://scenes/tile.tscn")
 @onready var rally_announce_label: Label = $RallyAnnouncement/AnnounceLabel
 @onready var walkoff_label: Label = $RallyAnnouncement/WalkoffLabel
 @onready var champion_label: Label = $RallyAnnouncement/ChampionLabel
+@onready var playoff_intro_label: Label = $RallyAnnouncement/PlayoffIntroLabel
 @onready var trophy_drawing: Node2D = $RallyAnnouncement/TrophyDrawing
 @onready var fireworks_layer: Node2D = $RallyAnnouncement/FireworksLayer
 @onready var rally_audio: AudioStreamPlayer = $RallyAnnouncement/RallyAudio
@@ -145,6 +146,7 @@ func _ready() -> void:
 	hitting_streak_label.visible = false
 	champion_label.visible = false
 	trophy_drawing.visible = false
+	playoff_intro_label.visible = false
 
 	var generator := AudioStreamGenerator.new()
 	generator.mix_rate = 44100.0
@@ -192,11 +194,15 @@ func _show_playoff_intro() -> void:
 	if SeasonManager.stage == "finals" and SeasonManager.series_player_wins == 0 and SeasonManager.series_opponent_wins == 0 and SeasonManager.other_semifinal_result != "":
 		text += "\n\n" + SeasonManager.other_semifinal_result
 
-	rally_announce_label.visible = true
-	walkoff_label.visible = false
-	rally_announce_label.text = text
+	# This can run several lines long (especially the first Finals game, with
+	# the other-semifinal recap appended) — it gets its own smaller, taller
+	# label instead of squeezing into AnnounceLabel, which is sized and sized
+	# up for a short one- or two-line hype line like "GRAND SLAM!".
+	playoff_intro_label.visible = true
+	playoff_intro_label.text = text
 	rally_announcement.visible = true
 	await get_tree().create_timer(3.5).timeout
+	playoff_intro_label.visible = false
 	rally_announcement.visible = false
 	is_paused = false
 
