@@ -29,6 +29,12 @@ const RALLY_MULTIPLIER := 2
 # cascade — capping keeps chains exciting without blowing up the scoreboard.
 const MAX_CHAIN_MULTIPLIER := 3
 
+# A Double or Triple still always scores and builds the Rally meter — this
+# only thins out how often the resulting All-Star tile (line-blast / area-
+# blast) actually spawns, so those bonus tiles stay a rarer treat instead of
+# appearing on essentially every 4-run or double-3.
+const SPECIAL_TILE_SPAWN_CHANCE := 0.5
+
 # How long the Rally announcement freezes the game before play (and the
 # 10s Rally window itself) resumes.
 const RALLY_ANNOUNCE_DURATION := 2.0
@@ -55,6 +61,31 @@ const HITTING_STREAK_BONUS_PER_STACK := 0.1
 const WALKOFF_SLOWMO_SCALE := 0.4
 const WALKOFF_CELEBRATION_SECONDS := 4.0
 
+# Behind when time runs out: this many more swap attempts (hits or misses
+# both count against the total) before the game ends regardless of outcome —
+# unless a swap crosses the target first, which still wins immediately.
+const FINAL_CHANCE_SWAPS := 3
+
+# Board-event tiles: a temporary marker layered on an ordinary gem (see
+# tile.gd's event_type), matched via normal color-match rules like any other
+# tile. All times below are elapsed seconds since the game started.
+const GOLDEN_BALL_TIME_LEFT := 20.0 # spawns once this much time remains
+const GOLDEN_TILE_VALUE_MULTIPLIER := 3.0 # counts as this many tiles' worth of base score
+
+const ERROR_TILE_ELAPSED_TIMES := [15.0, 40.0]
+const ERROR_TILE_PENALTY := 400
+
+const EXTRA_INNINGS_ELAPSED_SPAWN := 30.0
+const EXTRA_INNINGS_VISIBLE_SECONDS := 5.0
+const EXTRA_INNINGS_BONUS_SECONDS := 10.0
+
+# Tug-of-war meter: how much score lead (in either direction) fully
+# saturates the bar to one side, scaled off the current game's own target
+# so it stays meaningfully sensitive whether the opponent's range is small
+# or large.
+const TUG_BAR_SCALE_FRACTION := 0.6
+const TUG_BAR_SCALE_FLOOR := 1000.0
+
 # One-time-use power-ups, banked from a Win Streak (SeasonManager) and spent
 # here. Tap the icon to arm one, then tap the board to place it — the clear
 # itself scores nothing (it's a utility, not a match), but whatever the
@@ -72,6 +103,9 @@ const TileScene := preload("res://scenes/tile.tscn")
 @onready var time_label: Label = $TimeLabel
 @onready var big_play_label: Label = $BigPlayLabel
 @onready var hitting_streak_label: Label = $HittingStreakLabel
+@onready var tug_bar_background: ColorRect = $TugBar/TugBarBackground
+@onready var tug_bar_player_fill: ColorRect = $TugBar/TugBarPlayerFill
+@onready var tug_bar_opponent_fill: ColorRect = $TugBar/TugBarOpponentFill
 @onready var tiles_container: Node2D = $TilesContainer
 @onready var rally_bar: ProgressBar = $RallyBar
 @onready var rally_status_label: Label = $RallyStatusLabel
@@ -116,8 +150,23 @@ var time_left := SESSION_SECONDS
 var rally_meter := 0.0
 var rally_time_left := 0.0
 var time_up_handled := false
-var final_move_active := false
+# >0 while behind at time-up: how many more swap attempts (hits or misses
+# both count) are left before the game ends regardless of outcome. 0 means
+# not in this phase.
+var final_moves_remaining := 0
 var season_over := false
+
+# Board-event tiles currently on the board: Vector2i -> "golden" | "error" |
+# "extra_innings". golden_pos / extra_innings_pos additionally track those
+# two by dedicated position (there's at most one of each at a time, unlike
+# error tiles which can have two live simultaneously).
+var board_events := {}
+var golden_pos := Vector2i(-1, -1)
+var golden_spawned := false
+var error_tiles_spawned: Array = [false, false] # parallel to ERROR_TILE_ELAPSED_TIMES
+var extra_innings_pos := Vector2i(-1, -1)
+var extra_innings_spawned := false
+var extra_innings_expire_at := -1.0 # time_left value at which it vanishes unclaimed
 
 var opponent_score := 0
 var opponent_revealed := false
@@ -150,7 +199,7 @@ func _ready() -> void:
 	opponent_score = target_score
 	decoy_ceiling = SeasonManager.roll_target_score() # independent re-roll, just for the decoy display
 	decoy_next_tick = randf_range(DECOY_TICK_MIN, DECOY_TICK_MAX)
-	opponent_label.text = "%s: 0" % current_team_name
+	_update_opponent_display()
 
 	_update_time_label()
 	rally_bar.max_value = RALLY_METER_MAX
@@ -237,7 +286,6 @@ func _process(delta: float) -> void:
 		if not opponent_revealed:
 			if time_left <= OPPONENT_REVEAL_TIME_LEFT:
 				opponent_revealed = true
-				opponent_label.text = "%s: %d" % [current_team_name, opponent_score]
 				_show_big_play("7TH INNING STRETCH!")
 			else:
 				decoy_tick_timer += delta
@@ -250,6 +298,13 @@ func _process(delta: float) -> void:
 		if hitting_streak_idle_timer >= HITTING_STREAK_DECAY_IDLE_SECONDS and hitting_streak_count > 0:
 			hitting_streak_count = 0
 			_update_hitting_streak_label()
+
+		_update_board_events()
+
+	# Kept outside the time_left > 0 gate (unlike the decoy ticker above) so
+	# the tug-of-war bar and label stay live through FINAL CHANCE too, where
+	# the score can still move — that's the most dramatic moment to watch it.
+	_update_opponent_display()
 
 	if time_left <= 0.0 and not is_busy and not time_up_handled:
 		time_up_handled = true
@@ -273,7 +328,26 @@ func _tick_decoy_score() -> void:
 	var deficit: float = max(expected - decoy_score, 0.0)
 	var gain: int = int(max(15.0, deficit * randf_range(0.6, 1.4)))
 	decoy_score += gain
-	opponent_label.text = "%s: %d" % [current_team_name, decoy_score]
+
+
+## Keeps the opponent's numeric label and the tug-of-war bar in sync every
+## frame, using the decoy score before the reveal and the real one after —
+## so a change to the real opponent_score (an error tile penalty, say) shows
+## up immediately even if it happens well after the reveal already passed.
+func _update_opponent_display() -> void:
+	var shown_score: int = opponent_score if opponent_revealed else decoy_score
+	opponent_label.text = "%s: %d" % [current_team_name, shown_score]
+	_update_tug_of_war_bar(shown_score)
+
+
+func _update_tug_of_war_bar(shown_opponent_score: int) -> void:
+	var scale: float = max(target_score * TUG_BAR_SCALE_FRACTION, TUG_BAR_SCALE_FLOOR)
+	var diff: float = float(score - shown_opponent_score)
+	var ratio: float = clamp(0.5 + diff / (2.0 * scale), 0.0, 1.0)
+	var bar_width: float = tug_bar_background.size.x
+	tug_bar_player_fill.size.x = ratio * bar_width
+	tug_bar_opponent_fill.position.x = ratio * bar_width
+	tug_bar_opponent_fill.size.x = bar_width - ratio * bar_width
 
 
 ## A manual pause, distinct from the internal `is_paused` used to freeze
@@ -299,10 +373,10 @@ func _update_time_label() -> void:
 
 
 ## When the clock hits zero: an already-winning score ends the game normally.
-## A losing score instead gets one bonus, untimed swap — "one last chance" —
-## rather than ending immediately or auto-detonating leftover specials.
-## Bungled/no-match swap attempts during this window just revert as usual and
-## don't burn the chance; only a swap that actually resolves ends the game.
+## A losing score instead gets FINAL_CHANCE_SWAPS bonus, untimed swaps —
+## "3 outs" — before the game ends regardless of outcome. A swap that
+## crosses the target still wins immediately, same as any other walkoff;
+## hitting or whiffing otherwise both use up one of the swaps.
 func _handle_time_up() -> void:
 	if score >= opponent_score:
 		_end_game()
@@ -311,7 +385,7 @@ func _handle_time_up() -> void:
 	is_paused = true
 	rally_announce_label.visible = true
 	walkoff_label.visible = false
-	rally_announce_label.text = "FINAL CHANCE!\nOne swap to win it!"
+	rally_announce_label.text = "FINAL CHANCE!\n%d swaps to win it!" % FINAL_CHANCE_SWAPS
 	rally_announcement.visible = true
 	await get_tree().create_timer(2.0).timeout
 	rally_announcement.visible = false
@@ -319,7 +393,7 @@ func _handle_time_up() -> void:
 
 	if not _has_valid_move():
 		await _reshuffle_board()
-	final_move_active = true
+	final_moves_remaining = FINAL_CHANCE_SWAPS
 
 
 func _box_score_text() -> String:
@@ -565,15 +639,7 @@ func _try_swap(a: Vector2i, b: Vector2i) -> void:
 		hitting_streak_count = 0
 		_update_hitting_streak_label()
 		is_busy = false
-
-		# "FINAL CHANCE! One swap to win it" means exactly one — whiffing it
-		# still ends the game, same as landing a match would. Previously
-		# only the match branch below consumed final_move_active, so a
-		# whiffed final swap left the game hanging, open to unlimited
-		# further attempts instead of the one promised.
-		if final_move_active and not game_over:
-			final_move_active = false
-			_end_game()
+		_consume_final_chance_swap()
 	else:
 		hitting_streak_count = min(hitting_streak_count + 1, HITTING_STREAK_MAX)
 		hitting_streak_idle_timer = 0.0
@@ -583,10 +649,7 @@ func _try_swap(a: Vector2i, b: Vector2i) -> void:
 		await _resolve_matches(match_data, forced_label, hitting_streak_multiplier)
 		is_busy = false
 
-		if final_move_active and not game_over:
-			final_move_active = false
-			_end_game()
-		elif not game_over and not _has_valid_move():
+		if not _consume_final_chance_swap() and not game_over and not _has_valid_move():
 			await _reshuffle_board()
 
 
@@ -675,11 +738,24 @@ func _activate_powerup_clear(positions: Dictionary) -> void:
 		await _resolve_matches(match_data)
 	is_busy = false
 
-	if final_move_active and not game_over:
-		final_move_active = false
-		_end_game()
-	elif not game_over and not _has_valid_move():
+	if not _consume_final_chance_swap() and not game_over and not _has_valid_move():
 		await _reshuffle_board()
+
+
+## Consumes one attempt during "FINAL CHANCE" (a hit or a miss both count) —
+## ends the game once the counter runs out, or immediately if this swap
+## already crossed the target (an ordinary win, even without a dramatic
+## Walk-off). A no-op outside of FINAL CHANCE. Returns true if it ended the
+## game, so callers can skip their own reshuffle-check in that case.
+func _consume_final_chance_swap() -> bool:
+	if final_moves_remaining <= 0 or game_over:
+		return false
+	final_moves_remaining -= 1
+	if score >= opponent_score or final_moves_remaining <= 0:
+		_end_game()
+		return true
+	_show_big_play("%d LEFT!" % final_moves_remaining)
+	return false
 
 
 func _update_hitting_streak_label() -> void:
@@ -708,10 +784,118 @@ func _swap_tiles(a: Vector2i, b: Vector2i) -> void:
 	var tile_b: Control = grid[b.x][b.y]
 	var temp_type: int = tile_a.gem_type
 	var temp_special: String = tile_a.special_type
+	var temp_event: String = tile_a.event_type
 	tile_a.set_type(tile_b.gem_type)
 	tile_a.set_special(tile_b.special_type)
+	tile_a.set_event(tile_b.event_type)
 	tile_b.set_type(temp_type)
 	tile_b.set_special(temp_special)
+	tile_b.set_event(temp_event)
+	_move_board_event_tracking(a, b)
+
+
+## Keeps board_events (and the dedicated golden_pos / extra_innings_pos
+## trackers) in sync with a true two-way swap (_swap_tiles): whatever was at
+## a and b trade places.
+func _move_board_event_tracking(a: Vector2i, b: Vector2i) -> void:
+	var event_a: String = board_events.get(a, "")
+	var event_b: String = board_events.get(b, "")
+	if event_a == "" and event_b == "":
+		return
+
+	if event_a != "":
+		board_events[b] = event_a
+	else:
+		board_events.erase(b)
+	if event_b != "":
+		board_events[a] = event_b
+	else:
+		board_events.erase(a)
+
+	if golden_pos == a:
+		golden_pos = b
+	elif golden_pos == b:
+		golden_pos = a
+	if extra_innings_pos == a:
+		extra_innings_pos = b
+	elif extra_innings_pos == b:
+		extra_innings_pos = a
+
+
+## One-way version for _apply_gravity's shift-down copy: whatever event tag
+## was at src is now at dst. dst's own old tag, if any, was already read out
+## earlier in this same gravity pass (gravity only ever copies to a row at
+## or below its source), so simply discarding it here is safe.
+func _copy_board_event_tracking(src: Vector2i, dst: Vector2i) -> void:
+	var event_src: String = board_events.get(src, "")
+	board_events.erase(src)
+	if event_src != "":
+		board_events[dst] = event_src
+	else:
+		board_events.erase(dst)
+
+	if golden_pos == src:
+		golden_pos = dst
+	if extra_innings_pos == src:
+		extra_innings_pos = dst
+
+
+## Spawns each board-event tile at its scheduled elapsed time, and expires
+## the Extra Innings icon if its short visible window passes unclaimed.
+func _update_board_events() -> void:
+	var elapsed: float = SESSION_SECONDS - time_left
+
+	if not golden_spawned and time_left <= GOLDEN_BALL_TIME_LEFT:
+		golden_spawned = true
+		golden_pos = _spawn_board_event("golden")
+
+	for i in range(ERROR_TILE_ELAPSED_TIMES.size()):
+		if not error_tiles_spawned[i] and elapsed >= ERROR_TILE_ELAPSED_TIMES[i]:
+			error_tiles_spawned[i] = true
+			_spawn_board_event("error")
+
+	if not extra_innings_spawned and elapsed >= EXTRA_INNINGS_ELAPSED_SPAWN:
+		extra_innings_spawned = true
+		extra_innings_pos = _spawn_board_event("extra_innings")
+		if extra_innings_pos != Vector2i(-1, -1):
+			extra_innings_expire_at = time_left - EXTRA_INNINGS_VISIBLE_SECONDS
+
+	if extra_innings_pos != Vector2i(-1, -1) and time_left <= extra_innings_expire_at:
+		_expire_extra_innings()
+
+
+## Places a new board-event tile of the given kind on a random plain (no
+## All-Star special, not already event-tagged) cell. Returns its position,
+## or (-1,-1) if the board somehow has no free cell.
+func _spawn_board_event(kind: String) -> Vector2i:
+	var candidates: Array = []
+	for x in range(COLUMNS):
+		for y in range(ROWS):
+			var p := Vector2i(x, y)
+			if grid[x][y].special_type == "" and not board_events.has(p):
+				candidates.append(p)
+	if candidates.is_empty():
+		return Vector2i(-1, -1)
+	var pos: Vector2i = candidates[randi() % candidates.size()]
+	board_events[pos] = kind
+	grid[pos.x][pos.y].set_event(kind)
+	return pos
+
+
+func _expire_extra_innings() -> void:
+	if extra_innings_pos != Vector2i(-1, -1):
+		grid[extra_innings_pos.x][extra_innings_pos.y].set_event("")
+		board_events.erase(extra_innings_pos)
+	extra_innings_pos = Vector2i(-1, -1)
+
+
+## Called when the golden ball is caught in a match — it doesn't clear, it
+## relocates to a fresh random cell instead.
+func _relocate_golden_ball() -> void:
+	if golden_pos != Vector2i(-1, -1):
+		grid[golden_pos.x][golden_pos.y].set_event("")
+		board_events.erase(golden_pos)
+	golden_pos = _spawn_board_event("golden")
 
 
 ## Returns {"positions": {Vector2i: true}, "runs": [{"length", "orientation",
@@ -783,6 +967,16 @@ func _resolve_matches(match_data: Dictionary, forced_label: String = "", hitting
 
 		var detonated := _expand_special_detonations(positions)
 
+		# Board-event tiles caught in this step: golden earns a bonus and
+		# persists (relocating instead of clearing); error/extra-innings
+		# fire their effect and clear normally along with everything else.
+		var golden_in_step: bool = golden_pos != Vector2i(-1, -1) and positions.has(golden_pos)
+		var extra_innings_in_step: bool = extra_innings_pos != Vector2i(-1, -1) and positions.has(extra_innings_pos)
+		var error_hits: Array = []
+		for pos in positions.keys():
+			if board_events.get(pos, "") == "error":
+				error_hits.append(pos)
+
 		var max_run := 0
 		var home_run_run = null
 		var double_run = null
@@ -810,13 +1004,15 @@ func _resolve_matches(match_data: Dictionary, forced_label: String = "", hitting
 		elif double_run != null:
 			tier_multiplier = 2
 			event_label = "DOUBLE!"
-			spawn_pos = double_run.cells[double_run.cells.size() / 2]
-			spawn_special = "row" if double_run.orientation == "h" else "col"
+			if randf() < SPECIAL_TILE_SPAWN_CHANCE:
+				spawn_pos = double_run.cells[double_run.cells.size() / 2]
+				spawn_special = "row" if double_run.orientation == "h" else "col"
 		elif triple_runs.size() >= 2:
 			tier_multiplier = 3
 			event_label = "TRIPLE!"
-			spawn_pos = _pick_triple_spawn(triple_runs[0], triple_runs[1])
-			spawn_special = "area"
+			if randf() < SPECIAL_TILE_SPAWN_CHANCE:
+				spawn_pos = _pick_triple_spawn(triple_runs[0], triple_runs[1])
+				spawn_special = "area"
 		elif chain_count >= 2:
 			event_label = CASCADE_EVENTS[randi() % CASCADE_EVENTS.size()]
 
@@ -833,11 +1029,38 @@ func _resolve_matches(match_data: Dictionary, forced_label: String = "", hitting
 			"MVP BLAST!": stat_mvp_blasts += 1
 		stat_longest_cascade = max(stat_longest_cascade, chain_count)
 
+		# Board-event effects and callout text, appended after the stat
+		# tracking above (which matches event_label against exact tier
+		# strings) so they can't corrupt that comparison.
+		if not error_hits.is_empty():
+			var penalty: int = ERROR_TILE_PENALTY * error_hits.size()
+			opponent_score += penalty
+			for pos in error_hits:
+				board_events.erase(pos)
+			var error_text := "ERROR! +%d %s" % [penalty, current_team_name]
+			event_label = error_text if event_label == "" else event_label + "  " + error_text
+		if extra_innings_in_step:
+			board_events.erase(extra_innings_pos)
+			extra_innings_pos = Vector2i(-1, -1)
+			time_left += EXTRA_INNINGS_BONUS_SECONDS
+			_update_time_label()
+			var bonus_text := "EXTRA INNINGS! +%ds" % int(EXTRA_INNINGS_BONUS_SECONDS)
+			event_label = bonus_text if event_label == "" else event_label + "  " + bonus_text
+
 		if spawn_pos != null:
 			positions.erase(spawn_pos)
+		if golden_in_step:
+			positions.erase(golden_pos)
 
 		var chain_multiplier: int = min(chain_count, MAX_CHAIN_MULTIPLIER)
-		var base_points: int = int(BASE_POINTS * positions.size() * tier_multiplier * chain_multiplier * hitting_streak_multiplier)
+		# positions has already had golden_pos erased above (it doesn't
+		# clear, so it doesn't belong in the "how many tiles cleared" count)
+		# — its own contribution is added back separately, at its full
+		# bonus weight, instead of the 1 it would've counted as normally.
+		var effective_tile_count: float = positions.size()
+		if golden_in_step:
+			effective_tile_count += GOLDEN_TILE_VALUE_MULTIPLIER
+		var base_points: int = int(BASE_POINTS * effective_tile_count * tier_multiplier * chain_multiplier * hitting_streak_multiplier)
 		var rally_active := rally_time_left > 0.0
 		var score_before_step := score
 		score += base_points * (RALLY_MULTIPLIER if rally_active else 1)
@@ -868,6 +1091,9 @@ func _resolve_matches(match_data: Dictionary, forced_label: String = "", hitting
 
 		_apply_gravity(positions)
 		await get_tree().create_timer(0.1).timeout
+
+		if golden_in_step:
+			_relocate_golden_ball()
 
 		var is_walkoff_event := event_label == "HOME RUN!" or event_label == "MVP BLAST!" or rally_just_started
 		if is_walkoff_event and opponent_revealed and score_before_step < opponent_score and score >= opponent_score:
@@ -1153,6 +1379,12 @@ func _reshuffle_board() -> void:
 	for x in range(COLUMNS):
 		for y in range(ROWS):
 			grid[x][y].set_type(_random_type_without_match(x, y))
+	# set_type() above wipes every tile's event badge along with its color,
+	# same as it always has for All-Star specials — clear the tracking to
+	# match rather than leave it pointing at cells that no longer carry one.
+	board_events.clear()
+	golden_pos = Vector2i(-1, -1)
+	extra_innings_pos = Vector2i(-1, -1)
 	await get_tree().create_timer(0.5).timeout
 	is_paused = false
 
@@ -1170,6 +1402,14 @@ func _apply_gravity(cleared: Dictionary) -> void:
 					var dst: Control = grid[x][write_y]
 					dst.set_type(src.gem_type)
 					dst.set_special(src.special_type)
+					dst.set_event(src.event_type)
+					_copy_board_event_tracking(Vector2i(x, y), Vector2i(x, write_y))
 				write_y -= 1
 		for y in range(write_y, -1, -1):
 			grid[x][y].set_type(randi() % GEM_TYPES)
+			var fresh_pos := Vector2i(x, y)
+			board_events.erase(fresh_pos)
+			if golden_pos == fresh_pos:
+				golden_pos = Vector2i(-1, -1)
+			if extra_innings_pos == fresh_pos:
+				extra_innings_pos = Vector2i(-1, -1)

@@ -22,11 +22,26 @@ const GEM_COLORS := [
 const SPECIAL_SYMBOLS := {"area": "A", "row": "H", "col": "V", "color_bomb": "M"}
 const COLOR_BOMB_COLOR := Color(0.12, 0.12, 0.14)
 
+# Board-event overlays: a temporary marker on top of an ordinary gem, matched
+# via normal color-match rules like any other tile, independent of the
+# All-Star special_type above. "" = none. "golden" = worth bonus points and
+# relocates instead of clearing when matched. "error" = penalizes the player
+# when matched. "extra_innings" = adds time when matched.
+const EVENT_BADGE_COLORS := {
+	"golden": Color(1, 0.84, 0, 1),
+	"error": Color(0.9, 0.15, 0.15, 1),
+	"extra_innings": Color(0.25, 0.6, 1, 1),
+}
+const EVENT_SYMBOLS := {"golden": "★", "error": "!", "extra_innings": "+10"}
+
 var gem_type: int = 0
 var special_type: String = ""
+var event_type: String = ""
 var grid_pos: Vector2i = Vector2i.ZERO
 
 @onready var special_mark: Label = $SpecialMark
+@onready var event_badge: ColorRect = $EventBadge
+@onready var event_mark: Label = $EventBadge/EventMark
 
 
 func _ready() -> void:
@@ -34,12 +49,13 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 
 
-## Setting a plain gem type always clears any special marker — a tile only
-## carries special status when explicitly given one via set_special().
+## Setting a plain gem type always clears any special marker or board-event
+## badge — a tile only carries either when explicitly given one afterward.
 func set_type(type: int) -> void:
 	gem_type = type
 	color = GEM_COLORS[type]
 	set_special("")
+	set_event("")
 
 
 func set_special(type: String) -> void:
@@ -52,6 +68,14 @@ func set_special(type: String) -> void:
 		color = COLOR_BOMB_COLOR
 	elif type == "":
 		color = GEM_COLORS[gem_type]
+
+
+func set_event(type: String) -> void:
+	event_type = type
+	event_badge.visible = type != ""
+	if type != "":
+		event_badge.color = EVENT_BADGE_COLORS[type]
+		event_mark.text = EVENT_SYMBOLS[type]
 
 
 func set_selected(is_selected: bool) -> void:

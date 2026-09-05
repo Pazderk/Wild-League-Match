@@ -49,14 +49,42 @@ theme_override_colors/font_color = Color(1, 0.55, 0.15, 1)
 theme_override_font_sizes/font_size = 20
 text = "HITTING STREAK x3"
 
+[node name="TugBar" type="Control" parent="."]
+offset_left = 20.0
+offset_top = 116.0
+offset_right = 700.0
+offset_bottom = 132.0
+
+[node name="TugBarBackground" type="ColorRect" parent="TugBar"]
+offset_right = 680.0
+offset_bottom = 16.0
+color = Color(0.25, 0.25, 0.25, 1)
+
+[node name="TugBarPlayerFill" type="ColorRect" parent="TugBar"]
+offset_right = 340.0
+offset_bottom = 16.0
+color = Color(0.25, 0.55, 0.9, 1)
+
+[node name="TugBarOpponentFill" type="ColorRect" parent="TugBar"]
+offset_left = 340.0
+offset_right = 680.0
+offset_bottom = 16.0
+color = Color(0.85, 0.25, 0.25, 1)
+
+[node name="TugBarCenterLine" type="ColorRect" parent="TugBar"]
+offset_left = 338.0
+offset_right = 342.0
+offset_bottom = 16.0
+color = Color(1, 1, 1, 0.6)
+
 [node name="TilesContainer" type="Node2D" parent="."]
-position = Vector2(20, 124)
+position = Vector2(20, 138)
 
 [node name="TimeLabel" type="Label" parent="."]
 offset_left = 20.0
-offset_top = 778.0
+offset_top = 792.0
 offset_right = 400.0
-offset_bottom = 813.0
+offset_bottom = 827.0
 theme_override_font_sizes/font_size = 28
 text = "Time: 1:00"
 
@@ -64,32 +92,32 @@ text = "Time: 1:00"
 
 [node name="PauseButton" type="Button" parent="."]
 offset_left = 600.0
-offset_top = 778.0
+offset_top = 792.0
 offset_right = 700.0
-offset_bottom = 813.0
+offset_bottom = 827.0
 text = "Pause"
 
 [node name="PowerupRowsButton" type="Button" parent="."]
 offset_left = 15.0
-offset_top = 825.0
+offset_top = 839.0
 offset_right = 245.0
-offset_bottom = 885.0
+offset_bottom = 899.0
 theme_override_font_sizes/font_size = 16
 text = "2 Rows (0)"
 
 [node name="PowerupColumnsButton" type="Button" parent="."]
 offset_left = 255.0
-offset_top = 825.0
+offset_top = 839.0
 offset_right = 465.0
-offset_bottom = 885.0
+offset_bottom = 899.0
 theme_override_font_sizes/font_size = 16
 text = "2 Cols (0)"
 
 [node name="PowerupBoxButton" type="Button" parent="."]
 offset_left = 475.0
-offset_top = 825.0
+offset_top = 839.0
 offset_right = 705.0
-offset_bottom = 885.0
+offset_bottom = 899.0
 theme_override_font_sizes/font_size = 16
 text = "4x4 Box (0)"
 
