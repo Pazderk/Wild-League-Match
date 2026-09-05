@@ -69,6 +69,30 @@ offset_right = 700.0
 offset_bottom = 813.0
 text = "Pause"
 
+[node name="PowerupRowsButton" type="Button" parent="."]
+offset_left = 15.0
+offset_top = 825.0
+offset_right = 245.0
+offset_bottom = 885.0
+theme_override_font_sizes/font_size = 16
+text = "2 Rows (0)"
+
+[node name="PowerupColumnsButton" type="Button" parent="."]
+offset_left = 255.0
+offset_top = 825.0
+offset_right = 465.0
+offset_bottom = 885.0
+theme_override_font_sizes/font_size = 16
+text = "2 Cols (0)"
+
+[node name="PowerupBoxButton" type="Button" parent="."]
+offset_left = 475.0
+offset_top = 825.0
+offset_right = 705.0
+offset_bottom = 885.0
+theme_override_font_sizes/font_size = 16
+text = "4x4 Box (0)"
+
 [node name="BigPlayLabel" type="Label" parent="."]
 visible = false
 offset_left = 60.0

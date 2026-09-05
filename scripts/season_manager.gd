@@ -13,12 +13,13 @@ extends Node
 ## decide who's in.
 ##
 ## Playoffs: the top 4 of the full 8-team standings (you + 7 others) make
-## it. Seed 1 plays seed 4, seed 2 plays seed 3 — whichever pairing you're
-## seeded into is your real Semifinal opponent, so the Vipers could be a
-## Semifinal foe, not always the Finals. The "other" semifinal (the pairing
-## without you) is simulated once, favoring the higher seed but not
-## certain, and its winner becomes your Finals opponent. Nothing carries
-## over between seasons yet — a new season is a full reset.
+## it. The Vipers always take one of those 4 spots (they're guaranteed the
+## best record among the other 7) and are always kept on the opposite side
+## of the bracket from you — so if you win your own Semifinal, your Finals
+## opponent is always the Vipers, the rival showdown the season builds
+## toward. Your own Semifinal opponent is whichever of the other two
+## qualifiers isn't needed to test the Vipers. Nothing carries over between
+## seasons yet — a new season is a full reset.
 
 const SAVE_PATH := "user://season_save.json"
 const PREFS_PATH := "user://prefs.json"
@@ -65,6 +66,18 @@ var bracket_seeds := [] # [{"name": String, "wins": int}, ...] size 4
 var player_seed_index := -1
 var semifinal_opponent_name := ""
 var finals_opponent_name := ""
+
+const POWERUP_TYPES := ["rows", "columns", "box"]
+const WIN_STREAK_INTERVAL := 3 # every 3rd consecutive game win earns a charge
+
+# Consecutive game wins (any stage) since the last loss. Every 3rd one banks
+# a random power-up charge. Resets to 0 on any loss, and with the season.
+var win_streak := 0
+var powerup_counts := {"rows": 0, "columns": 0, "box": 0}
+# Set by report_result() when this call's win happened to land on a streak
+# milestone, so the end-of-game screen can call it out — not persisted,
+# purely a same-call signal for board.gd to read right after report_result().
+var last_powerup_earned := ""
 
 # Kept in a separate small file from season_save.json since these are
 # standing preferences, not season progress — reset_season() must never
@@ -159,6 +172,14 @@ func roll_target_score() -> int:
 
 
 func report_result(did_win: bool) -> void:
+	last_powerup_earned = ""
+	if did_win:
+		win_streak += 1
+		if win_streak % WIN_STREAK_INTERVAL == 0:
+			last_powerup_earned = _grant_random_powerup()
+	else:
+		win_streak = 0
+
 	match stage:
 		"regular":
 			_report_regular_result(did_win)
@@ -166,6 +187,20 @@ func report_result(did_win: bool) -> void:
 			_report_series_result(did_win, SEMIFINAL_WINS_NEEDED, "finals", "eliminated_semis")
 		"finals":
 			_report_series_result(did_win, FINALS_WINS_NEEDED, "champion", "eliminated_finals")
+	_save()
+
+
+func _grant_random_powerup() -> String:
+	var kind: String = POWERUP_TYPES[randi() % POWERUP_TYPES.size()]
+	powerup_counts[kind] = powerup_counts.get(kind, 0) + 1
+	return kind
+
+
+## Called by board.gd the moment a banked charge is used. Clamped at 0 so a
+## desynced double-spend (shouldn't happen, but cheap to guard) can't go
+## negative.
+func spend_powerup(kind: String) -> void:
+	powerup_counts[kind] = max(0, powerup_counts.get(kind, 0) - 1)
 	_save()
 
 
@@ -257,23 +292,44 @@ func _finish_regular_season() -> void:
 	stage = "semifinal"
 
 
-## Seeds the 4-team bracket from the top 4 of the final standings. Seed 1
-## plays seed 4, seed 2 plays seed 3 — whichever pairing includes the
-## player determines their real Semifinal opponent (which may be the
-## Vipers). The other pairing is simulated immediately so its winner is
-## ready to serve as the player's Finals opponent in advance.
+## Seeds the 4-team bracket from the top 4 of the final standings. The
+## Vipers are always kept on the opposite side from the player — of the
+## other two qualifiers, whichever is the tougher remaining seed tests the
+## Vipers (simulated, but a foregone conclusion — see
+## _simulate_other_semifinal), and the other becomes the player's real
+## Semifinal opponent. That guarantees a Vipers Finals rematch whenever the
+## player wins through, matching the rival build-up the season leans on.
 func _setup_playoff_bracket(entrants: Array, player_seed: int) -> void:
 	bracket_seeds = entrants
 	player_seed_index = player_seed
 
-	var opponent_index: int = 3 - player_seed_index # seed1<->seed4 (0,3), seed2<->seed3 (1,2)
-	semifinal_opponent_name = entrants[opponent_index].name
+	var vipers_index := -1
+	for i in range(entrants.size()):
+		if entrants[i].name == RIVAL_NAME:
+			vipers_index = i
+			break
+
+	if vipers_index == -1:
+		# Defensive fallback only — the Vipers are always one of the 7 other
+		# teams and always guaranteed a top-4 spot, so this shouldn't happen.
+		var opponent_index: int = 3 - player_seed_index
+		semifinal_opponent_name = entrants[opponent_index].name
+		var other_indices: Array = []
+		for i in range(4):
+			if i != player_seed_index and i != opponent_index:
+				other_indices.append(i)
+		_simulate_other_semifinal(entrants[other_indices[0]], entrants[other_indices[1]])
+		return
 
 	var other_indices: Array = []
 	for i in range(4):
-		if i != player_seed_index and i != opponent_index:
+		if i != player_seed_index and i != vipers_index:
 			other_indices.append(i)
-	_simulate_other_semifinal(entrants[other_indices[0]], entrants[other_indices[1]])
+	# other_indices is built in ascending index order, i.e. descending seed
+	# strength — the tougher remaining team tests the Vipers, the weaker one
+	# is the player's real Semifinal opponent.
+	semifinal_opponent_name = entrants[other_indices[1]].name
+	_simulate_other_semifinal(entrants[vipers_index], entrants[other_indices[0]])
 
 
 ## Vipers break ties in their own favor so they're always the single best
@@ -291,14 +347,22 @@ func _compare_seed_entries(a: Dictionary, b: Dictionary) -> bool:
 
 ## Simulates the semifinal pairing that doesn't include the player, so its
 ## winner can be lined up as the player's Finals opponent ahead of time.
-## The higher seed is favored but not certain.
+## Whenever the Vipers are one of the two, they always win — that's what
+## guarantees the Finals rematch. Otherwise the higher seed is favored but
+## not certain (a defensive fallback path only; see _setup_playoff_bracket).
 func _simulate_other_semifinal(a: Dictionary, b: Dictionary) -> void:
-	var higher: Dictionary = a if a.wins >= b.wins else b
-	var lower: Dictionary = b if a.wins >= b.wins else a
-	var diff: int = higher.wins - lower.wins
-	var prob_higher_wins: float = clamp(0.5 + diff * 0.08, 0.55, 0.9)
-	var winner: Dictionary = higher if randf() < prob_higher_wins else lower
-	var loser: Dictionary = lower if winner.name == higher.name else higher
+	var winner: Dictionary
+	var loser: Dictionary
+	if a.name == RIVAL_NAME or b.name == RIVAL_NAME:
+		winner = a if a.name == RIVAL_NAME else b
+		loser = b if a.name == RIVAL_NAME else a
+	else:
+		var higher: Dictionary = a if a.wins >= b.wins else b
+		var lower: Dictionary = b if a.wins >= b.wins else a
+		var diff: int = higher.wins - lower.wins
+		var prob_higher_wins: float = clamp(0.5 + diff * 0.08, 0.55, 0.9)
+		winner = higher if randf() < prob_higher_wins else lower
+		loser = lower if winner.name == higher.name else higher
 
 	finals_opponent_name = winner.name
 	var series_scores := ["2-0", "2-1"]
@@ -425,6 +489,8 @@ func reset_season() -> void:
 	player_seed_index = -1
 	semifinal_opponent_name = ""
 	finals_opponent_name = ""
+	win_streak = 0
+	powerup_counts = {"rows": 0, "columns": 0, "box": 0}
 	_reset_league_records()
 	_save()
 
@@ -445,6 +511,8 @@ func _save() -> void:
 		"player_seed_index": player_seed_index,
 		"semifinal_opponent_name": semifinal_opponent_name,
 		"finals_opponent_name": finals_opponent_name,
+		"win_streak": win_streak,
+		"powerup_counts": powerup_counts,
 	}
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
@@ -478,6 +546,8 @@ func _load() -> void:
 	player_seed_index = parsed.get("player_seed_index", -1)
 	semifinal_opponent_name = parsed.get("semifinal_opponent_name", "")
 	finals_opponent_name = parsed.get("finals_opponent_name", "")
+	win_streak = parsed.get("win_streak", 0)
+	powerup_counts = parsed.get("powerup_counts", {"rows": 0, "columns": 0, "box": 0})
 
 	# A terminal stage is saved the instant it's computed, not when the
 	# player clicks "New Season" — if the app closed before that click, the

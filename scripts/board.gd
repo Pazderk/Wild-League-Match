@@ -55,6 +55,16 @@ const HITTING_STREAK_BONUS_PER_STACK := 0.1
 const WALKOFF_SLOWMO_SCALE := 0.4
 const WALKOFF_CELEBRATION_SECONDS := 4.0
 
+# One-time-use power-ups, banked from a Win Streak (SeasonManager) and spent
+# here. Tap the icon to arm one, then tap the board to place it — the clear
+# itself scores nothing (it's a utility, not a match), but whatever the
+# refill naturally matches afterward runs through the normal cascade
+# pipeline and scores as usual.
+const POWERUP_DISPLAY_NAMES := {"rows": "2 Rows", "columns": "2 Cols", "box": "4x4 Box"}
+const POWERUP_ROW_SPAN := 2
+const POWERUP_COLUMN_SPAN := 2
+const POWERUP_BOX_SPAN := 4
+
 const TileScene := preload("res://scenes/tile.tscn")
 
 @onready var score_label: Label = $ScoreLabel
@@ -84,8 +94,12 @@ const TileScene := preload("res://scenes/tile.tscn")
 @onready var pause_button: Button = $PauseButton
 @onready var pause_overlay: Control = $PauseOverlay
 @onready var resume_button: Button = $PauseOverlay/ResumeButton
+@onready var powerup_rows_button: Button = $PowerupRowsButton
+@onready var powerup_columns_button: Button = $PowerupColumnsButton
+@onready var powerup_box_button: Button = $PowerupBoxButton
 
 var grid: Array = [] # grid[x][y] -> Tile node
+var armed_powerup := "" # "", "rows", "columns", or "box"
 var selected_tile: Vector2i = Vector2i(-1, -1)
 var is_busy := false
 var is_paused := false
@@ -165,6 +179,11 @@ func _ready() -> void:
 	)
 	standings_button_end.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/standings_screen.tscn"))
 	title_button_end.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/title_screen.tscn"))
+
+	powerup_rows_button.pressed.connect(func(): _on_powerup_button_pressed("rows"))
+	powerup_columns_button.pressed.connect(func(): _on_powerup_button_pressed("columns"))
+	powerup_box_button.pressed.connect(func(): _on_powerup_button_pressed("box"))
+	_update_powerup_buttons()
 
 	pause_overlay.visible = false
 	pause_button.pressed.connect(_on_pause_pressed)
@@ -317,11 +336,15 @@ func _box_score_text() -> String:
 ## continuing this one.
 func _end_game() -> void:
 	game_over = true
+	powerup_rows_button.visible = false
+	powerup_columns_button.visible = false
+	powerup_box_button.visible = false
 	var did_win := score >= opponent_score
 	var stage_before: String = SeasonManager.stage
 
 	SeasonManager.report_result(did_win)
 	var stage_after: String = SeasonManager.stage
+	var earned_powerup: String = SeasonManager.last_powerup_earned
 
 	match stage_after:
 		"champion":
@@ -343,6 +366,9 @@ func _end_game() -> void:
 				_show_advanced_screen(stage_after)
 			else:
 				_show_ongoing_screen(did_win, stage_before)
+
+	if earned_powerup != "":
+		stats_label.text += "\n\n🔥 3-GAME WIN STREAK! Earned a %s power-up!" % POWERUP_DISPLAY_NAMES.get(earned_powerup, earned_powerup)
 
 
 ## The game just clinched moving up a round (regular -> semifinal, or
@@ -464,6 +490,10 @@ func _on_tile_clicked(grid_pos: Vector2i) -> void:
 	if game_over or is_busy or is_paused or is_user_paused:
 		return
 
+	if armed_powerup != "":
+		_use_powerup(armed_powerup, grid_pos)
+		return
+
 	if selected_tile == Vector2i(-1, -1):
 		selected_tile = grid_pos
 		grid[grid_pos.x][grid_pos.y].set_selected(true)
@@ -532,6 +562,98 @@ func _try_swap(a: Vector2i, b: Vector2i) -> void:
 			_end_game()
 		elif not game_over and not _has_valid_move():
 			await _reshuffle_board()
+
+
+## Arms a power-up (tap the board next to place it) or disarms it if it's
+## already armed. Ignored if that type has no charges left.
+func _on_powerup_button_pressed(kind: String) -> void:
+	if game_over or is_busy or is_paused or is_user_paused:
+		return
+	if int(SeasonManager.powerup_counts.get(kind, 0)) <= 0:
+		return
+
+	if selected_tile != Vector2i(-1, -1):
+		grid[selected_tile.x][selected_tile.y].set_selected(false)
+		selected_tile = Vector2i(-1, -1)
+
+	armed_powerup = "" if armed_powerup == kind else kind
+	_update_powerup_buttons()
+
+
+func _update_powerup_buttons() -> void:
+	for kind in POWERUP_DISPLAY_NAMES:
+		var button: Button = _powerup_button(kind)
+		var count: int = int(SeasonManager.powerup_counts.get(kind, 0))
+		button.text = "%s (%d)" % [POWERUP_DISPLAY_NAMES[kind], count]
+		button.disabled = count <= 0
+		button.modulate = Color(1, 0.85, 0.2, 1) if armed_powerup == kind else Color(1, 1, 1, 1)
+
+
+func _powerup_button(kind: String) -> Button:
+	match kind:
+		"rows": return powerup_rows_button
+		"columns": return powerup_columns_button
+		"box": return powerup_box_button
+	return null
+
+
+## Which cells a power-up clears, anchored on the tapped tile and clamped so
+## the shape never runs off the grid.
+func _positions_for_powerup(kind: String, origin: Vector2i) -> Dictionary:
+	var positions := {}
+	match kind:
+		"rows":
+			var start_y: int = clamp(origin.y, 0, ROWS - POWERUP_ROW_SPAN)
+			for y in range(start_y, start_y + POWERUP_ROW_SPAN):
+				for x in range(COLUMNS):
+					positions[Vector2i(x, y)] = true
+		"columns":
+			var start_x: int = clamp(origin.x, 0, COLUMNS - POWERUP_COLUMN_SPAN)
+			for x in range(start_x, start_x + POWERUP_COLUMN_SPAN):
+				for y in range(ROWS):
+					positions[Vector2i(x, y)] = true
+		"box":
+			var start_x: int = clamp(origin.x, 0, COLUMNS - POWERUP_BOX_SPAN)
+			var start_y: int = clamp(origin.y, 0, ROWS - POWERUP_BOX_SPAN)
+			for x in range(start_x, start_x + POWERUP_BOX_SPAN):
+				for y in range(start_y, start_y + POWERUP_BOX_SPAN):
+					positions[Vector2i(x, y)] = true
+	return positions
+
+
+func _use_powerup(kind: String, origin: Vector2i) -> void:
+	SeasonManager.spend_powerup(kind)
+	armed_powerup = ""
+	_update_powerup_buttons()
+	await _activate_powerup_clear(_positions_for_powerup(kind, origin))
+
+
+## Clears the given cells with no score of its own (it's a utility, not a
+## match) — any All-Star tile caught in the area still detonates and
+## expands the clear, same as a normal match would. Refills through gravity,
+## then hands off to the normal cascade pipeline: whatever the refill
+## naturally matches scores exactly like any other cascade step.
+func _activate_powerup_clear(positions: Dictionary) -> void:
+	is_busy = true
+	_expand_special_detonations(positions)
+	_play_pop(1.3)
+	for pos in positions:
+		grid[pos.x][pos.y].play_clear_effect()
+	await get_tree().create_timer(0.15).timeout
+
+	_apply_gravity(positions)
+	await get_tree().create_timer(0.1).timeout
+
+	var match_data := _find_matches()
+	if not match_data.positions.is_empty():
+		await _resolve_matches(match_data)
+	is_busy = false
+
+	if final_move_active and not game_over:
+		final_move_active = false
+		_end_game()
+	elif not game_over and not _has_valid_move():
+		await _reshuffle_board()
 
 
 func _update_hitting_streak_label() -> void:
