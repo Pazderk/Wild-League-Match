@@ -88,9 +88,9 @@ const TUG_BAR_SCALE_FLOOR := 1000.0
 
 # One-time-use power-ups, banked from a Win Streak (SeasonManager) and spent
 # here. Tap the icon to arm one, then tap the board to place it — the clear
-# itself scores nothing (it's a utility, not a match), but whatever the
-# refill naturally matches afterward runs through the normal cascade
-# pipeline and scores as usual.
+# scores like a plain match (no tier bonus), and whatever the refill
+# naturally matches afterward runs through the normal cascade pipeline and
+# scores as usual on top of that.
 const POWERUP_DISPLAY_NAMES := {"rows": "2 Rows", "columns": "2 Cols", "box": "4x4 Box"}
 const POWERUP_ROW_SPAN := 2
 const POWERUP_COLUMN_SPAN := 2
@@ -167,6 +167,13 @@ var error_tiles_spawned: Array = [false, false] # parallel to ERROR_TILE_ELAPSED
 var extra_innings_pos := Vector2i(-1, -1)
 var extra_innings_spawned := false
 var extra_innings_expire_at := -1.0 # time_left value at which it vanishes unclaimed
+# Set when the icon is matched; the bonus itself is deferred to time-up
+# rather than applied immediately, so it reads as genuine added time at the
+# end rather than an invisible mid-game top-up. Only spent if the player is
+# still behind when the main clock runs out — an already-winning score just
+# ends the game as normal, same as it always has.
+var extra_innings_earned := false
+var extra_innings_consumed := false
 
 var opponent_score := 0
 var opponent_revealed := false
@@ -265,7 +272,12 @@ func _show_playoff_intro() -> void:
 	# This can run several lines long (especially the first Finals game, with
 	# the other-semifinal recap appended) — it gets its own smaller, taller
 	# label instead of squeezing into AnnounceLabel, which is sized and sized
-	# up for a short one- or two-line hype line like "GRAND SLAM!".
+	# up for a short one- or two-line hype line like "GRAND SLAM!". Since
+	# AnnounceLabel has no default-hidden state of its own (every other
+	# announcement explicitly hides it first), it must be hidden here too,
+	# or its leftover text sits visible underneath, overlapping this one.
+	rally_announce_label.visible = false
+	walkoff_label.visible = false
 	playoff_intro_label.visible = true
 	playoff_intro_label.text = text
 	rally_announcement.visible = true
@@ -372,14 +384,35 @@ func _update_time_label() -> void:
 	time_label.text = "Time: %d:%02d" % [total / 60, total % 60]
 
 
-## When the clock hits zero: an already-winning score ends the game normally.
-## A losing score instead gets FINAL_CHANCE_SWAPS bonus, untimed swaps —
-## "3 outs" — before the game ends regardless of outcome. A swap that
+## When the clock hits zero: an already-winning score ends the game normally
+## regardless of whether Extra Innings was ever earned — there's no reason
+## to extend a game that's already won. A losing score spends a banked
+## Extra Innings bonus first if there is one (genuine bonus time, not the
+## mid-game top-up it used to be — the clock actually resumes and normal
+## play continues for that long), and only once that's used up — or if none
+## was ever earned — falls back to FINAL_CHANCE_SWAPS bonus, untimed swaps
+## ("3 outs") before the game ends regardless of outcome. A swap that
 ## crosses the target still wins immediately, same as any other walkoff;
 ## hitting or whiffing otherwise both use up one of the swaps.
 func _handle_time_up() -> void:
 	if score >= opponent_score:
 		_end_game()
+		return
+
+	if extra_innings_earned and not extra_innings_consumed:
+		extra_innings_consumed = true
+		is_paused = true
+		rally_announce_label.visible = true
+		walkoff_label.visible = false
+		rally_announce_label.text = "EXTRA INNINGS!\n+%d seconds!" % int(EXTRA_INNINGS_BONUS_SECONDS)
+		rally_announcement.visible = true
+		await get_tree().create_timer(2.0).timeout
+		rally_announcement.visible = false
+		is_paused = false
+
+		time_left += EXTRA_INNINGS_BONUS_SECONDS
+		_update_time_label()
+		time_up_handled = false # let the clock naturally re-trigger this once the bonus time also runs out
 		return
 
 	is_paused = true
@@ -717,14 +750,24 @@ func _use_powerup(kind: String, origin: Vector2i) -> void:
 	await _activate_powerup_clear(_positions_for_powerup(kind, origin))
 
 
-## Clears the given cells with no score of its own (it's a utility, not a
-## match) — any All-Star tile caught in the area still detonates and
-## expands the clear, same as a normal match would. Refills through gravity,
-## then hands off to the normal cascade pipeline: whatever the refill
-## naturally matches scores exactly like any other cascade step.
+## Clears the given cells, scored like a plain match (BASE_POINTS per tile,
+## no tier bonus, doubled if a Rally is active) — any All-Star tile caught
+## in the area still detonates and expands the clear, same as a normal
+## match would, adding to that count. Refills through gravity, then hands
+## off to the normal cascade pipeline: whatever the refill naturally
+## matches on top of that scores exactly like any other cascade step.
 func _activate_powerup_clear(positions: Dictionary) -> void:
 	is_busy = true
 	_expand_special_detonations(positions)
+
+	var base_points: int = BASE_POINTS * positions.size()
+	var rally_active := rally_time_left > 0.0
+	score += base_points * (RALLY_MULTIPLIER if rally_active else 1)
+	score_label.text = "Score: %d" % score
+	if not rally_active:
+		rally_meter = min(rally_meter + base_points, RALLY_METER_MAX)
+		rally_bar.value = rally_meter
+
 	_play_pop(1.3)
 	for pos in positions:
 		grid[pos.x][pos.y].play_clear_effect()
@@ -1042,9 +1085,8 @@ func _resolve_matches(match_data: Dictionary, forced_label: String = "", hitting
 		if extra_innings_in_step:
 			board_events.erase(extra_innings_pos)
 			extra_innings_pos = Vector2i(-1, -1)
-			time_left += EXTRA_INNINGS_BONUS_SECONDS
-			_update_time_label()
-			var bonus_text := "EXTRA INNINGS! +%ds" % int(EXTRA_INNINGS_BONUS_SECONDS)
+			extra_innings_earned = true
+			var bonus_text := "EXTRA INNINGS BANKED!"
 			event_label = bonus_text if event_label == "" else event_label + "  " + bonus_text
 
 		if spawn_pos != null:

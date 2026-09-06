@@ -292,13 +292,17 @@ func _finish_regular_season() -> void:
 	stage = "semifinal"
 
 
-## Seeds the 4-team bracket from the top 4 of the final standings. The
-## Vipers are always kept on the opposite side from the player — of the
-## other two qualifiers, whichever is the tougher remaining seed tests the
-## Vipers (simulated, but a foregone conclusion — see
-## _simulate_other_semifinal), and the other becomes the player's real
-## Semifinal opponent. That guarantees a Vipers Finals rematch whenever the
-## player wins through, matching the rival build-up the season leans on.
+## Seeds the 4-team bracket from the top 4 of the final standings using
+## standard seeding — seed 1 plays seed 4, seed 2 plays seed 3 — which on
+## its own already keeps the Vipers on the opposite side from the player in
+## every case except one: the #4 seed's 1-vs-4 pairing would otherwise pit
+## them directly against the Vipers, who are always the #1 seed whenever
+## they outrank the player (i.e. whenever the player isn't the #1 seed
+## themselves). Only that one case reroutes the player to the weaker of the
+## two remaining qualifiers, sending the Vipers to test the tougher one
+## instead — every other seed keeps its normal 1v4 / 2v3 opponent. That
+## guarantees a Vipers Finals rematch whenever the player wins through,
+## without disturbing standard seeding anywhere it isn't required to.
 func _setup_playoff_bracket(entrants: Array, player_seed: int) -> void:
 	bracket_seeds = entrants
 	player_seed_index = player_seed
@@ -309,27 +313,22 @@ func _setup_playoff_bracket(entrants: Array, player_seed: int) -> void:
 			vipers_index = i
 			break
 
-	if vipers_index == -1:
-		# Defensive fallback only — the Vipers are always one of the 7 other
-		# teams and always guaranteed a top-4 spot, so this shouldn't happen.
-		var opponent_index: int = 3 - player_seed_index
-		semifinal_opponent_name = entrants[opponent_index].name
+	var opponent_index: int = 3 - player_seed_index # standard seed1v4 (0,3) / 2v3 (1,2)
+
+	if vipers_index != -1 and vipers_index == opponent_index:
 		var other_indices: Array = []
 		for i in range(4):
-			if i != player_seed_index and i != opponent_index:
+			if i != player_seed_index and i != vipers_index:
 				other_indices.append(i)
-		_simulate_other_semifinal(entrants[other_indices[0]], entrants[other_indices[1]])
-		return
+		opponent_index = other_indices[1] # the weaker of the two remaining
 
-	var other_indices: Array = []
+	semifinal_opponent_name = entrants[opponent_index].name
+
+	var other_semifinal_indices: Array = []
 	for i in range(4):
-		if i != player_seed_index and i != vipers_index:
-			other_indices.append(i)
-	# other_indices is built in ascending index order, i.e. descending seed
-	# strength — the tougher remaining team tests the Vipers, the weaker one
-	# is the player's real Semifinal opponent.
-	semifinal_opponent_name = entrants[other_indices[1]].name
-	_simulate_other_semifinal(entrants[vipers_index], entrants[other_indices[0]])
+		if i != player_seed_index and i != opponent_index:
+			other_semifinal_indices.append(i)
+	_simulate_other_semifinal(entrants[other_semifinal_indices[0]], entrants[other_semifinal_indices[1]])
 
 
 ## Vipers break ties in their own favor so they're always the single best

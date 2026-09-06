@@ -27,12 +27,17 @@ const COLOR_BOMB_COLOR := Color(0.12, 0.12, 0.14)
 # All-Star special_type above. "" = none. "golden" = worth bonus points and
 # relocates instead of clearing when matched. "error" = penalizes the player
 # when matched. "extra_innings" = adds time when matched.
-const EVENT_BADGE_COLORS := {
-	"golden": Color(1, 0.84, 0, 1),
-	"error": Color(0.9, 0.15, 0.15, 1),
-	"extra_innings": Color(0.25, 0.6, 1, 1),
-}
-const EVENT_SYMBOLS := {"golden": "★", "error": "!", "extra_innings": "+10"}
+#
+# "error" and "golden" are drawn directly (an X, a circle) rather than as a
+# text glyph — this is a web export, and a font's rendering of a given
+# Unicode symbol isn't guaranteed consistent across browsers, while a drawn
+# shape always looks the same. "extra_innings" keeps the small corner-badge
+# treatment since it wasn't reported as hard to see.
+const EVENT_BADGE_COLORS := {"extra_innings": Color(0.25, 0.6, 1, 1)}
+const EVENT_SYMBOLS := {"extra_innings": "+10"}
+const ERROR_SHAPE_COLOR := Color(0.85, 0.1, 0.1, 1)
+const GOLDEN_SHAPE_FILL := Color(1, 0.84, 0, 0.9)
+const GOLDEN_SHAPE_OUTLINE := Color(0.55, 0.4, 0, 1)
 
 var gem_type: int = 0
 var special_type: String = ""
@@ -72,10 +77,24 @@ func set_special(type: String) -> void:
 
 func set_event(type: String) -> void:
 	event_type = type
-	event_badge.visible = type != ""
-	if type != "":
+	event_badge.visible = type == "extra_innings"
+	if type == "extra_innings":
 		event_badge.color = EVENT_BADGE_COLORS[type]
 		event_mark.text = EVENT_SYMBOLS[type]
+	queue_redraw()
+
+
+func _draw() -> void:
+	match event_type:
+		"error":
+			var margin := 14.0
+			draw_line(Vector2(margin, margin), Vector2(size.x - margin, size.y - margin), ERROR_SHAPE_COLOR, 7.0, true)
+			draw_line(Vector2(size.x - margin, margin), Vector2(margin, size.y - margin), ERROR_SHAPE_COLOR, 7.0, true)
+		"golden":
+			var center := size / 2.0
+			var radius: float = min(size.x, size.y) / 2.0 - 10.0
+			draw_circle(center, radius, GOLDEN_SHAPE_FILL)
+			draw_arc(center, radius, 0, TAU, 32, GOLDEN_SHAPE_OUTLINE, 3.0, true)
 
 
 func set_selected(is_selected: bool) -> void:
