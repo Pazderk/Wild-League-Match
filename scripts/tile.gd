@@ -19,8 +19,17 @@ const GEM_COLORS := [
 # or let it get caught in a normal match / another special's blast to
 # chain-fire it. color_bomb ("MVP Ball") instead clears every tile matching
 # whichever gem it's swapped into.
-const SPECIAL_SYMBOLS := {"area": "A", "row": "H", "col": "V", "color_bomb": "M"}
+#
+# "row"/"col"/"area" are drawn directly (a horizontal arrow, a vertical
+# arrow, a bomb) rather than as a letter, same reasoning and pattern as the
+# event overlays below. color_bomb keeps its own letter mark.
+const SPECIAL_SYMBOLS := {"color_bomb": "M"}
 const COLOR_BOMB_COLOR := Color(0.12, 0.12, 0.14)
+const SPECIAL_SHAPE_COLOR := Color(1, 1, 1, 1)
+const BOMB_BODY_COLOR := Color(0.08, 0.08, 0.1, 1)
+const BOMB_OUTLINE_COLOR := Color(1, 1, 1, 0.85)
+const BOMB_FUSE_COLOR := Color(0.6, 0.4, 0.2, 1)
+const BOMB_SPARK_COLOR := Color(1, 0.8, 0.2, 1)
 
 # Board-event overlays: a temporary marker on top of an ordinary gem, matched
 # via normal color-match rules like any other tile, independent of the
@@ -65,14 +74,15 @@ func set_type(type: int) -> void:
 
 func set_special(type: String) -> void:
 	special_type = type
-	special_mark.visible = type != ""
-	if type != "":
+	special_mark.visible = type == "color_bomb"
+	if type == "color_bomb":
 		special_mark.text = SPECIAL_SYMBOLS[type]
 
 	if type == "color_bomb":
 		color = COLOR_BOMB_COLOR
 	elif type == "":
 		color = GEM_COLORS[gem_type]
+	queue_redraw()
 
 
 func set_event(type: String) -> void:
@@ -85,6 +95,14 @@ func set_event(type: String) -> void:
 
 
 func _draw() -> void:
+	match special_type:
+		"row":
+			_draw_double_arrow(true)
+		"col":
+			_draw_double_arrow(false)
+		"area":
+			_draw_bomb()
+
 	match event_type:
 		"error":
 			var margin := 14.0
@@ -95,6 +113,55 @@ func _draw() -> void:
 			var radius: float = min(size.x, size.y) / 2.0 - 10.0
 			draw_circle(center, radius, GOLDEN_SHAPE_FILL)
 			draw_arc(center, radius, 0, TAU, 32, GOLDEN_SHAPE_OUTLINE, 3.0, true)
+
+
+## A double-headed arrow — horizontal for the row-clear All-Star tile,
+## vertical for the column-clear one — pointing along the line it clears.
+func _draw_double_arrow(horizontal: bool) -> void:
+	var cx := size.x / 2.0
+	var cy := size.y / 2.0
+	var half_len: float = (size.x if horizontal else size.y) * 0.30
+	var head_len := 14.0
+	var head_width := 9.0
+
+	if horizontal:
+		draw_line(Vector2(cx - half_len, cy), Vector2(cx + half_len, cy), SPECIAL_SHAPE_COLOR, 6.0, true)
+		draw_colored_polygon(PackedVector2Array([
+			Vector2(cx - half_len - head_len * 0.5, cy),
+			Vector2(cx - half_len + head_len * 0.5, cy - head_width),
+			Vector2(cx - half_len + head_len * 0.5, cy + head_width),
+		]), SPECIAL_SHAPE_COLOR)
+		draw_colored_polygon(PackedVector2Array([
+			Vector2(cx + half_len + head_len * 0.5, cy),
+			Vector2(cx + half_len - head_len * 0.5, cy - head_width),
+			Vector2(cx + half_len - head_len * 0.5, cy + head_width),
+		]), SPECIAL_SHAPE_COLOR)
+	else:
+		draw_line(Vector2(cx, cy - half_len), Vector2(cx, cy + half_len), SPECIAL_SHAPE_COLOR, 6.0, true)
+		draw_colored_polygon(PackedVector2Array([
+			Vector2(cx, cy - half_len - head_len * 0.5),
+			Vector2(cx - head_width, cy - half_len + head_len * 0.5),
+			Vector2(cx + head_width, cy - half_len + head_len * 0.5),
+		]), SPECIAL_SHAPE_COLOR)
+		draw_colored_polygon(PackedVector2Array([
+			Vector2(cx, cy + half_len + head_len * 0.5),
+			Vector2(cx - head_width, cy + half_len - head_len * 0.5),
+			Vector2(cx + head_width, cy + half_len - head_len * 0.5),
+		]), SPECIAL_SHAPE_COLOR)
+
+
+## A classic round bomb with a curled fuse and spark, for the area-clear
+## All-Star tile.
+func _draw_bomb() -> void:
+	var center := Vector2(size.x / 2.0, size.y / 2.0 + 5.0)
+	var radius: float = size.x * 0.26
+	draw_circle(center, radius, BOMB_BODY_COLOR)
+	draw_arc(center, radius, 0, TAU, 24, BOMB_OUTLINE_COLOR, 2.0, true)
+
+	var fuse_base := center + Vector2(radius * 0.55, -radius * 0.8)
+	var fuse_tip := fuse_base + Vector2(8, -12)
+	draw_line(fuse_base, fuse_tip, BOMB_FUSE_COLOR, 3.0, true)
+	draw_circle(fuse_tip + Vector2(1, -1), 4.0, BOMB_SPARK_COLOR)
 
 
 func set_selected(is_selected: bool) -> void:
