@@ -30,6 +30,32 @@ const SEMIFINAL_WINS_NEEDED := 2 # best of 3
 const FINALS_WINS_NEEDED := 3 # best of 5
 const PLAYOFF_SCORE_BOOST := 1.18 # tougher score ranges once the postseason starts
 
+# Difficulty: chosen when starting a fresh season, locked in for its whole
+# duration (can't change mid-season, same as the team name can but doesn't
+# need to be). "pro" is the untouched baseline — today's team score ranges
+# are tuned around it. Also drives how many Error Tiles show up per game
+# (see board.gd's DIFFICULTY_ERROR_TILE_TIMES) — harder difficulties get
+# more of them, not just tougher scores.
+const DIFFICULTY_LEVELS := ["rookie", "pro", "all_star", "hall_of_fame"]
+const DIFFICULTY_DISPLAY_NAMES := {
+	"rookie": "Rookie (Easy)",
+	"pro": "Pro (Medium)",
+	"all_star": "All-Star (Hard)",
+	"hall_of_fame": "Hall of Fame (Very Hard)",
+}
+const DIFFICULTY_SCORE_MULTIPLIERS := {
+	"rookie": 0.7,
+	"pro": 1.0,
+	"all_star": 1.3,
+	"hall_of_fame": 1.6,
+}
+const DIFFICULTY_ERROR_TILE_TIMES := {
+	"rookie": [15.0, 40.0],
+	"pro": [15.0, 40.0],
+	"all_star": [15.0, 32.0, 49.0],
+	"hall_of_fame": [12.0, 24.0, 36.0, 48.0],
+}
+
 var teams := [
 	{"name": "Ironbark Bears", "min_score": 3500, "max_score": 4500, "rival": false},
 	{"name": "Riverside Otters", "min_score": 3800, "max_score": 4800, "rival": false},
@@ -52,6 +78,9 @@ var current_team_index := 0
 var regular_games_played := 0
 var regular_wins := 0
 var regular_losses := 0
+
+# Locked in for the whole season at reset_season() — see DIFFICULTY_LEVELS.
+var difficulty := "pro"
 
 # "regular", "semifinal", "finals", "champion", "eliminated_semis",
 # "eliminated_finals", "missed_playoffs"
@@ -84,6 +113,10 @@ var last_powerup_earned := ""
 # touch them.
 var tutorial_seen := false
 var team_name := "YOU"
+# Only pre-selects the title screen's difficulty picker for convenience —
+# the season's own locked-in `difficulty` (below, part of season_save.json)
+# is what actually governs gameplay.
+var preferred_difficulty := "pro"
 
 
 func _ready() -> void:
@@ -106,10 +139,19 @@ func set_team_name(new_name: String) -> void:
 	_save_prefs()
 
 
+func set_preferred_difficulty(new_difficulty: String) -> void:
+	if not DIFFICULTY_LEVELS.has(new_difficulty):
+		return
+	preferred_difficulty = new_difficulty
+	_save_prefs()
+
+
 func _save_prefs() -> void:
 	var f := FileAccess.open(PREFS_PATH, FileAccess.WRITE)
 	if f:
-		f.store_string(JSON.stringify({"tutorial_seen": tutorial_seen, "team_name": team_name}))
+		f.store_string(JSON.stringify({
+			"tutorial_seen": tutorial_seen, "team_name": team_name, "preferred_difficulty": preferred_difficulty,
+		}))
 		f.close()
 
 
@@ -126,6 +168,7 @@ func _load_prefs() -> void:
 	if typeof(parsed) != TYPE_DICTIONARY:
 		return
 	tutorial_seen = parsed.get("tutorial_seen", false)
+	preferred_difficulty = parsed.get("preferred_difficulty", "pro")
 	team_name = parsed.get("team_name", "YOU")
 
 
@@ -163,8 +206,9 @@ func _find_team(team_name: String) -> Dictionary:
 
 func roll_target_score() -> int:
 	var team := get_current_opponent()
-	var lo: int = team.min_score
-	var hi: int = team.max_score
+	var multiplier: float = DIFFICULTY_SCORE_MULTIPLIERS.get(difficulty, 1.0)
+	var lo: int = int(team.min_score * multiplier)
+	var hi: int = int(team.max_score * multiplier)
 	if is_playoff_stage():
 		lo = int(lo * PLAYOFF_SCORE_BOOST)
 		hi = int(hi * PLAYOFF_SCORE_BOOST)
@@ -474,7 +518,13 @@ func get_season_totals() -> Dictionary:
 	return {"wins": wins, "losses": losses}
 
 
-func reset_season() -> void:
+## new_difficulty, if given, must be one of DIFFICULTY_LEVELS and becomes
+## this season's locked-in difficulty; left blank, the current difficulty
+## carries over (e.g. the season-over auto-reset in _load() shouldn't
+## silently change it).
+func reset_season(new_difficulty: String = "") -> void:
+	if DIFFICULTY_LEVELS.has(new_difficulty):
+		difficulty = new_difficulty
 	records = {}
 	current_team_index = 0
 	regular_games_played = 0
@@ -512,6 +562,7 @@ func _save() -> void:
 		"finals_opponent_name": finals_opponent_name,
 		"win_streak": win_streak,
 		"powerup_counts": powerup_counts,
+		"difficulty": difficulty,
 	}
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
@@ -532,6 +583,7 @@ func _load() -> void:
 	if typeof(parsed) != TYPE_DICTIONARY:
 		return
 	current_team_index = parsed.get("current_team_index", 0)
+	difficulty = parsed.get("difficulty", "pro")
 	records = parsed.get("records", {})
 	regular_games_played = parsed.get("regular_games_played", 0)
 	regular_wins = parsed.get("regular_wins", 0)

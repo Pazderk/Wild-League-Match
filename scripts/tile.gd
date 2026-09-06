@@ -20,16 +20,21 @@ const GEM_COLORS := [
 # chain-fire it. color_bomb ("MVP Ball") instead clears every tile matching
 # whichever gem it's swapped into.
 #
-# "row"/"col"/"area" are drawn directly (a horizontal arrow, a vertical
-# arrow, a bomb) rather than as a letter, same reasoning and pattern as the
-# event overlays below. color_bomb keeps its own letter mark.
-const SPECIAL_SYMBOLS := {"color_bomb": "M"}
-const COLOR_BOMB_COLOR := Color(0.12, 0.12, 0.14)
+# All four are drawn directly (a horizontal arrow, a vertical arrow, a
+# bomb, a spinning rainbow wheel) rather than as a letter — a font's
+# rendering of a given Unicode symbol isn't guaranteed consistent across
+# browsers in a web export, while a drawn shape always looks the same.
+const COLOR_BOMB_COLOR := Color(0.1, 0.1, 0.12)
 const SPECIAL_SHAPE_COLOR := Color(1, 1, 1, 1)
 const BOMB_BODY_COLOR := Color(0.08, 0.08, 0.1, 1)
 const BOMB_OUTLINE_COLOR := Color(1, 1, 1, 0.85)
 const BOMB_FUSE_COLOR := Color(0.6, 0.4, 0.2, 1)
 const BOMB_SPARK_COLOR := Color(1, 0.8, 0.2, 1)
+const RAINBOW_COLORS := [
+	Color(0.9, 0.15, 0.15), Color(0.95, 0.55, 0.1), Color(0.95, 0.85, 0.15),
+	Color(0.25, 0.75, 0.35), Color(0.25, 0.55, 0.9), Color(0.55, 0.25, 0.75),
+]
+const RAINBOW_SPIN_SPEED := 1.2 # radians/sec
 
 # Board-event overlays: a temporary marker on top of an ordinary gem, matched
 # via normal color-match rules like any other tile, independent of the
@@ -52,6 +57,7 @@ var gem_type: int = 0
 var special_type: String = ""
 var event_type: String = ""
 var grid_pos: Vector2i = Vector2i.ZERO
+var rainbow_rotation := 0.0
 
 @onready var special_mark: Label = $SpecialMark
 @onready var event_badge: ColorRect = $EventBadge
@@ -61,6 +67,12 @@ var grid_pos: Vector2i = Vector2i.ZERO
 func _ready() -> void:
 	pivot_offset = size / 2.0
 	mouse_filter = Control.MOUSE_FILTER_STOP
+
+
+func _process(delta: float) -> void:
+	if special_type == "color_bomb":
+		rainbow_rotation += delta * RAINBOW_SPIN_SPEED
+		queue_redraw()
 
 
 ## Setting a plain gem type always clears any special marker or board-event
@@ -74,12 +86,11 @@ func set_type(type: int) -> void:
 
 func set_special(type: String) -> void:
 	special_type = type
-	special_mark.visible = type == "color_bomb"
-	if type == "color_bomb":
-		special_mark.text = SPECIAL_SYMBOLS[type]
+	special_mark.visible = false
 
 	if type == "color_bomb":
 		color = COLOR_BOMB_COLOR
+		rainbow_rotation = 0.0
 	elif type == "":
 		color = GEM_COLORS[gem_type]
 	queue_redraw()
@@ -102,6 +113,8 @@ func _draw() -> void:
 			_draw_double_arrow(false)
 		"area":
 			_draw_bomb()
+		"color_bomb":
+			_draw_rainbow_wheel()
 
 	match event_type:
 		"error":
@@ -162,6 +175,28 @@ func _draw_bomb() -> void:
 	var fuse_tip := fuse_base + Vector2(8, -12)
 	draw_line(fuse_base, fuse_tip, BOMB_FUSE_COLOR, 3.0, true)
 	draw_circle(fuse_tip + Vector2(1, -1), 4.0, BOMB_SPARK_COLOR)
+
+
+## A slowly spinning color wheel for the color bomb ("MVP Ball") — the
+## rotation itself is what reads as "rainbow" at a glance, not just the
+## color spread.
+func _draw_rainbow_wheel() -> void:
+	var center := size / 2.0
+	var radius: float = min(size.x, size.y) / 2.0 - 8.0
+	var slice_count := RAINBOW_COLORS.size()
+	var slice_angle := TAU / slice_count
+	var arc_steps := 8
+
+	for i in range(slice_count):
+		var start_angle: float = rainbow_rotation + i * slice_angle
+		var points := PackedVector2Array()
+		points.append(center)
+		for s in range(arc_steps + 1):
+			var a: float = start_angle + slice_angle * (float(s) / arc_steps)
+			points.append(center + Vector2(cos(a), sin(a)) * radius)
+		draw_colored_polygon(points, RAINBOW_COLORS[i])
+
+	draw_arc(center, radius, 0, TAU, 32, Color(1, 1, 1, 0.6), 2.0, true)
 
 
 func set_selected(is_selected: bool) -> void:

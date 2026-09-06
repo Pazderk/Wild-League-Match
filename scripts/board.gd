@@ -72,7 +72,9 @@ const FINAL_CHANCE_SWAPS := 3
 const GOLDEN_BALL_TIME_LEFT := 20.0 # spawns once this much time remains
 const GOLDEN_TILE_VALUE_MULTIPLIER := 3.0 # counts as this many tiles' worth of base score
 
-const ERROR_TILE_ELAPSED_TIMES := [15.0, 40.0]
+# Spawn schedule scales with SeasonManager.difficulty — see
+# SeasonManager.DIFFICULTY_ERROR_TILE_TIMES. Harder difficulties get more
+# error tiles per game, not just tougher scores.
 const ERROR_TILE_PENALTY := 400
 
 const EXTRA_INNINGS_ELAPSED_SPAWN := 30.0
@@ -91,10 +93,10 @@ const TUG_BAR_SCALE_FLOOR := 1000.0
 # scores like a plain match (no tier bonus), and whatever the refill
 # naturally matches afterward runs through the normal cascade pipeline and
 # scores as usual on top of that.
-const POWERUP_DISPLAY_NAMES := {"rows": "2 Rows", "columns": "2 Cols", "box": "4x4 Box"}
-const POWERUP_ROW_SPAN := 2
-const POWERUP_COLUMN_SPAN := 2
-const POWERUP_BOX_SPAN := 4
+const POWERUP_DISPLAY_NAMES := {"rows": "3 Rows", "columns": "3 Columns", "box": "Big Bomb"}
+const POWERUP_ROW_SPAN := 3
+const POWERUP_COLUMN_SPAN := 3
+const POWERUP_BOX_SPAN := 5
 
 const TileScene := preload("res://scenes/tile.tscn")
 
@@ -159,11 +161,13 @@ var season_over := false
 # Board-event tiles currently on the board: Vector2i -> "golden" | "error" |
 # "extra_innings". golden_pos / extra_innings_pos additionally track those
 # two by dedicated position (there's at most one of each at a time, unlike
-# error tiles which can have two live simultaneously).
+# error tiles, which can have several live simultaneously — how many
+# depends on difficulty, see error_tile_elapsed_times below).
 var board_events := {}
 var golden_pos := Vector2i(-1, -1)
 var golden_spawned := false
-var error_tiles_spawned: Array = [false, false] # parallel to ERROR_TILE_ELAPSED_TIMES
+var error_tile_elapsed_times: Array = [] # set in _ready() from SeasonManager.difficulty
+var error_tiles_spawned: Array = [] # parallel to error_tile_elapsed_times
 var extra_innings_pos := Vector2i(-1, -1)
 var extra_innings_spawned := false
 var extra_innings_expire_at := -1.0 # time_left value at which it vanishes unclaimed
@@ -199,6 +203,10 @@ var whiff_sound: AudioStreamWAV
 func _ready() -> void:
 	randomize()
 	_build_board()
+
+	error_tile_elapsed_times = SeasonManager.DIFFICULTY_ERROR_TILE_TIMES.get(SeasonManager.difficulty, [15.0, 40.0])
+	error_tiles_spawned.resize(error_tile_elapsed_times.size())
+	error_tiles_spawned.fill(false)
 
 	var team: Dictionary = SeasonManager.get_current_opponent()
 	current_team_name = team.name
@@ -892,8 +900,8 @@ func _update_board_events() -> void:
 		golden_spawned = true
 		golden_pos = _spawn_board_event("golden")
 
-	for i in range(ERROR_TILE_ELAPSED_TIMES.size()):
-		if not error_tiles_spawned[i] and elapsed >= ERROR_TILE_ELAPSED_TIMES[i]:
+	for i in range(error_tile_elapsed_times.size()):
+		if not error_tiles_spawned[i] and elapsed >= error_tile_elapsed_times[i]:
 			error_tiles_spawned[i] = true
 			_spawn_board_event("error")
 

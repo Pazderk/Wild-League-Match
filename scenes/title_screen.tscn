@@ -60,35 +60,77 @@ offset_bottom = 580.0
 theme_override_font_sizes/font_size = 20
 text = "🎲"
 
+[node name="DifficultyLabel" type="Label" parent="."]
+offset_left = 20.0
+offset_top = 585.0
+offset_right = 700.0
+offset_bottom = 603.0
+theme_override_colors/font_color = Color(0.85, 0.9, 0.85, 1)
+theme_override_font_sizes/font_size = 16
+horizontal_alignment = 1
+text = "DIFFICULTY"
+
+[node name="RookieButton" type="Button" parent="."]
+offset_left = 20.0
+offset_top = 607.0
+offset_right = 185.0
+offset_bottom = 645.0
+theme_override_font_sizes/font_size = 13
+text = "Rookie (Easy)"
+
+[node name="ProButton" type="Button" parent="."]
+offset_left = 190.0
+offset_top = 607.0
+offset_right = 355.0
+offset_bottom = 645.0
+theme_override_font_sizes/font_size = 13
+text = "Pro (Medium)"
+
+[node name="AllStarButton" type="Button" parent="."]
+offset_left = 360.0
+offset_top = 607.0
+offset_right = 525.0
+offset_bottom = 645.0
+theme_override_font_sizes/font_size = 13
+text = "All-Star (Hard)"
+
+[node name="HallOfFameButton" type="Button" parent="."]
+offset_left = 530.0
+offset_top = 607.0
+offset_right = 700.0
+offset_bottom = 645.0
+theme_override_font_sizes/font_size = 12
+text = "Hall of Fame (V. Hard)"
+
 [node name="StartButton" type="Button" parent="."]
 offset_left = 260.0
-offset_top = 600.0
+offset_top = 655.0
 offset_right = 460.0
-offset_bottom = 660.0
+offset_bottom = 715.0
 theme_override_font_sizes/font_size = 24
 text = "Start Season"
 
 [node name="StandingsButton" type="Button" parent="."]
 offset_left = 260.0
-offset_top = 680.0
+offset_top = 725.0
 offset_right = 460.0
-offset_bottom = 730.0
+offset_bottom = 775.0
 theme_override_font_sizes/font_size = 20
 text = "Standings"
 
 [node name="HowToPlayButton" type="Button" parent="."]
 offset_left = 260.0
-offset_top = 750.0
+offset_top = 785.0
 offset_right = 460.0
-offset_bottom = 800.0
+offset_bottom = 835.0
 theme_override_font_sizes/font_size = 20
 text = "How to Play"
 
 [node name="RestartSeasonButton" type="Button" parent="."]
 offset_left = 260.0
-offset_top = 820.0
+offset_top = 845.0
 offset_right = 460.0
-offset_bottom = 865.0
+offset_bottom = 890.0
 theme_override_font_sizes/font_size = 18
 text = "Restart Season"
 

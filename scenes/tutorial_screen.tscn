@@ -34,7 +34,9 @@ text = "Swap two adjacent tiles to match 3+ of
 the same animal. Score more than your
 opponent before the clock hits zero —
 their score stays hidden until the
-final 15 seconds!
+final 15 seconds (watch the bar at
+the top — it tips toward whoever's
+ahead)!
 
 BIG PLAYS
 • 4-in-a-row = Double (2x points)
@@ -44,9 +46,12 @@ BIG PLAYS
 ALL-STAR TILES
 Big plays create special tiles. Swap
 one into any neighbor to fire it:
-  H / V  — clears that row or column
-  A  — clears a surrounding 3x3 area
-  M (MVP Ball) — clears one whole color
+  Arrow tile — clears that whole
+  row or column
+  Bomb tile — clears a surrounding
+  3x3 area
+  Rainbow tile — clears every tile
+  of one color
 
 RALLY & WALK-OFF WIN
 Fill the Big Play Gauge for a 10-second,
@@ -55,13 +60,44 @@ a Home Run, Rally, or MVP Blast that
 puts you in the lead wins the game
 instantly — a Walk-off Win!
 
+FINAL CHANCE
+Still behind when the clock hits zero?
+You get 3 more swaps — hits or misses
+both count — before the game ends.
+Cross the target on any of them and
+you win right there, same as a
+Walk-off.
+
+DURING THE GAME
+A few special tiles can show up as
+the clock runs:
+  Golden Ball — worth 3x a normal
+  tile's points when matched, and
+  hops to a new spot instead of
+  clearing
+  Error Tile (a red X) — matching
+  it costs you: the opponent's
+  score jumps
+  Extra Innings — appears for a
+  5-second window; match it in
+  time and, if you're still behind
+  when the clock runs out, you get
+  10 real bonus seconds to catch up
+
 WIN STREAK POWER-UPS
-Win 3 in a row to bank a random
-power-up: 2 Rows, 2 Cols, or a 4x4
-Box. Tap its icon, then tap the board
-to place it — the clear is free, but
-anything it sets up to fall into
-place still scores as usual.
+Win 3 games in a row to bank a random
+power-up: 3 Rows, 3 Columns, or a Big
+Bomb. Tap its icon, then tap the board
+to place it — it scores like a normal
+match, and anything the refill sets up
+afterward scores on top of that.
+
+DIFFICULTY
+Choose Rookie, Pro, All-Star, or Hall
+of Fame when starting a season. Higher
+difficulties raise target scores and
+throw more Error Tiles into each game.
+It's locked in for the whole season.
 
 THE SEASON
 Play all 7 other teams twice (14 games).
