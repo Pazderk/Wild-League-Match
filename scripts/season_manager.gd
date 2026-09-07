@@ -24,7 +24,6 @@ extends Node
 const SAVE_PATH := "user://season_save.json"
 const PREFS_PATH := "user://prefs.json"
 
-const REGULAR_SEASON_GAMES := 14
 const RIVAL_NAME := "Blackthorn Vipers"
 const SEMIFINAL_WINS_NEEDED := 2 # best of 3
 const FINALS_WINS_NEEDED := 3 # best of 5
@@ -44,16 +43,25 @@ const DIFFICULTY_DISPLAY_NAMES := {
 	"hall_of_fame": "Hall of Fame (Very Hard)",
 }
 const DIFFICULTY_SCORE_MULTIPLIERS := {
-	"rookie": 0.7,
-	"pro": 1.0,
-	"all_star": 1.3,
-	"hall_of_fame": 1.6,
+	"rookie": 0.6,
+	"pro": 0.9,
+	"all_star": 1.2,
+	"hall_of_fame": 1.5,
 }
 const DIFFICULTY_ERROR_TILE_TIMES := {
 	"rookie": [15.0, 40.0],
 	"pro": [15.0, 40.0],
 	"all_star": [15.0, 32.0, 49.0],
 	"hall_of_fame": [12.0, 24.0, 36.0, 48.0],
+}
+# Rookie/Pro play each of the other 7 teams once (7 games); All-Star/Hall of
+# Fame play the full round robin, twice each (14 games). Playoff structure
+# (best-of-3 Semifinal, best-of-5 Finals) is unaffected by difficulty.
+const DIFFICULTY_REGULAR_SEASON_GAMES := {
+	"rookie": 7,
+	"pro": 7,
+	"all_star": 14,
+	"hall_of_fame": 14,
 }
 
 var teams := [
@@ -81,6 +89,8 @@ var regular_losses := 0
 
 # Locked in for the whole season at reset_season() — see DIFFICULTY_LEVELS.
 var difficulty := "pro"
+# Set alongside difficulty at reset_season() — see DIFFICULTY_REGULAR_SEASON_GAMES.
+var regular_season_games := 7
 
 # "regular", "semifinal", "finals", "champion", "eliminated_semis",
 # "eliminated_finals", "missed_playoffs"
@@ -276,9 +286,9 @@ func _report_regular_result(did_win: bool) -> void:
 
 	current_team_index = (current_team_index + 1) % teams.size()
 
-	# No early exit — every one of the 14 games matters for final standing,
-	# so qualification is only ever decided once the season is complete.
-	if regular_games_played >= REGULAR_SEASON_GAMES:
+	# No early exit — every game matters for final standing, so
+	# qualification is only ever decided once the season is complete.
+	if regular_games_played >= regular_season_games:
 		_finish_regular_season()
 
 
@@ -525,6 +535,7 @@ func get_season_totals() -> Dictionary:
 func reset_season(new_difficulty: String = "") -> void:
 	if DIFFICULTY_LEVELS.has(new_difficulty):
 		difficulty = new_difficulty
+	regular_season_games = DIFFICULTY_REGULAR_SEASON_GAMES.get(difficulty, 7)
 	records = {}
 	current_team_index = 0
 	regular_games_played = 0
@@ -563,6 +574,7 @@ func _save() -> void:
 		"win_streak": win_streak,
 		"powerup_counts": powerup_counts,
 		"difficulty": difficulty,
+		"regular_season_games": regular_season_games,
 	}
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
@@ -584,6 +596,7 @@ func _load() -> void:
 		return
 	current_team_index = parsed.get("current_team_index", 0)
 	difficulty = parsed.get("difficulty", "pro")
+	regular_season_games = parsed.get("regular_season_games", DIFFICULTY_REGULAR_SEASON_GAMES.get(difficulty, 7))
 	records = parsed.get("records", {})
 	regular_games_played = parsed.get("regular_games_played", 0)
 	regular_wins = parsed.get("regular_wins", 0)

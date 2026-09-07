@@ -27,7 +27,7 @@ func _build_status_text() -> String:
 		"regular":
 			var next_team: String = SeasonManager.get_current_opponent().name
 			return "Regular Season: Game %d of %d\nSeason Record: %d-%d\nNext: %s" % [
-				SeasonManager.regular_games_played + 1, SeasonManager.REGULAR_SEASON_GAMES,
+				SeasonManager.regular_games_played + 1, SeasonManager.regular_season_games,
 				SeasonManager.regular_wins, SeasonManager.regular_losses, next_team
 			]
 		"semifinal":

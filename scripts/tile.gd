@@ -49,7 +49,7 @@ const RAINBOW_SPIN_SPEED := 1.2 # radians/sec
 # treatment since it wasn't reported as hard to see.
 const EVENT_BADGE_COLORS := {"extra_innings": Color(0.25, 0.6, 1, 1)}
 const EVENT_SYMBOLS := {"extra_innings": "+10"}
-const ERROR_SHAPE_COLOR := Color(0.85, 0.1, 0.1, 1)
+const ERROR_SHAPE_COLOR := Color(0, 0, 0, 1)
 const GOLDEN_SHAPE_FILL := Color(1, 0.84, 0, 0.9)
 const GOLDEN_SHAPE_OUTLINE := Color(0.55, 0.4, 0, 1)
 

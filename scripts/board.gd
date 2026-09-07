@@ -503,6 +503,27 @@ func _end_game() -> void:
 	await _show_result_screen(stage_before, stage_after, did_win)
 
 
+## "Blackthorn Vipers (1st)" — the team's name plus their current position
+## in the full 8-team standings (live during the regular season, frozen at
+## its final state once playoffs start, since standings don't move then).
+func _standing_text(team_name: String) -> String:
+	var standings: Array = SeasonManager.compute_standings()
+	for i in range(standings.size()):
+		if standings[i].name == team_name:
+			return "%s (%s)" % [team_name, _ordinal(i + 1)]
+	return team_name
+
+
+func _ordinal(n: int) -> String:
+	if n % 100 in [11, 12, 13]:
+		return "%dth" % n
+	match n % 10:
+		1: return "%dst" % n
+		2: return "%dnd" % n
+		3: return "%drd" % n
+		_: return "%dth" % n
+
+
 ## The game just clinched moving up a round (regular -> semifinal, or
 ## semifinal -> finals) — that's a milestone in its own right, not just
 ## another win, so it gets its own headline instead of being folded into
@@ -513,31 +534,35 @@ func _show_advanced_screen(stage_after: String) -> void:
 		end_title_label.text = "PLAYOFFS!"
 		stats_label.text = "%s\n\nRegular season: %d-%d. You're seed #%d!\nSemifinal: vs %s." % [
 			_box_score_text(), SeasonManager.regular_wins, SeasonManager.regular_losses,
-			SeasonManager.player_seed_index + 1, SeasonManager.semifinal_opponent_name
+			SeasonManager.player_seed_index + 1, _standing_text(SeasonManager.semifinal_opponent_name)
 		]
 	else: # semifinal -> finals
 		end_title_label.text = "ADVANCE TO THE FINALS!"
 		stats_label.text = "%s\n\nWon the Semifinal! Next: the Finals vs the %s." % [
-			_box_score_text(), SeasonManager.finals_opponent_name
+			_box_score_text(), _standing_text(SeasonManager.finals_opponent_name)
 		]
 	play_again_button.text = "Next Game"
 	end_panel.visible = true
 
 
 func _show_ongoing_screen(did_win: bool, stage_before: String) -> void:
-	end_title_label.text = "YOU WIN!" if did_win else "GAME OVER"
+	end_title_label.text = "YOU WIN!" if did_win else "YOU LOST!"
 	final_score_label.text = "Final Score: %d   %s: %d" % [score, current_team_name, opponent_score]
+
+	var next_opponent_name: String = SeasonManager.get_current_opponent().name
+	var next_line := "Next: %s" % _standing_text(next_opponent_name)
 
 	if stage_before == "semifinal" or stage_before == "finals":
 		var stage_name := "Semifinal" if stage_before == "semifinal" else "Finals"
-		stats_label.text = "%s\n\n%s series: You %d - %d %s" % [
-			_box_score_text(), stage_name, SeasonManager.series_player_wins, SeasonManager.series_opponent_wins, current_team_name
+		stats_label.text = "%s\n\n%s series: You %d - %d %s\n%s" % [
+			_box_score_text(), stage_name, SeasonManager.series_player_wins, SeasonManager.series_opponent_wins,
+			current_team_name, next_line
 		]
 	else:
 		var record: Dictionary = SeasonManager.get_record(current_team_name)
 		var totals: Dictionary = SeasonManager.get_season_totals()
-		stats_label.text = "%s\n\nvs %s: %d-%d      Season: %d-%d" % [
-			_box_score_text(), current_team_name, record.wins, record.losses, totals.wins, totals.losses
+		stats_label.text = "%s\n\nvs %s: %d-%d      Season: %d-%d\n%s" % [
+			_box_score_text(), current_team_name, record.wins, record.losses, totals.wins, totals.losses, next_line
 		]
 
 	play_again_button.text = "Next Game"
