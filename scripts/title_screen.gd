@@ -13,6 +13,7 @@ const NAME_SUGGESTIONS := [
 @onready var standings_button: Button = $StandingsButton
 @onready var how_to_play_button: Button = $HowToPlayButton
 @onready var restart_button: Button = $RestartSeasonButton
+@onready var trophy_case_button: Button = $TrophyCaseButton
 @onready var team_name_edit: LineEdit = $TeamNameEdit
 @onready var randomize_button: Button = $RandomizeButton
 @onready var restart_overlay: Control = $RestartConfirmOverlay
@@ -35,6 +36,7 @@ func _ready() -> void:
 	start_button.pressed.connect(_on_start_pressed)
 	standings_button.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/standings_screen.tscn"))
 	how_to_play_button.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/tutorial_screen.tscn"))
+	trophy_case_button.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/trophy_case_screen.tscn"))
 
 	team_name_edit.text = "" if SeasonManager.team_name == "YOU" else SeasonManager.team_name
 	randomize_button.pressed.connect(func(): team_name_edit.text = NAME_SUGGESTIONS[randi() % NAME_SUGGESTIONS.size()])

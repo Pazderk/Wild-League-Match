@@ -196,6 +196,21 @@ var stat_grand_slams := 0
 var stat_mvp_blasts := 0
 var stat_longest_cascade := 0
 
+# Per-game tracking for CareerManager achievement checks at _end_game().
+const COMEBACK_MARGIN_FRACTION := 0.25 # trailing by at least this fraction of the opponent's score at reveal
+const SPEEDRUN_TIME_LEFT_THRESHOLD := 20.0
+const PERFECT_HANDS_SECONDS := 30.0
+var whiff_count_this_game := 0
+var golden_ball_catches_this_game := 0
+var error_tiles_matched_this_game := 0
+var powerup_types_used_this_game := {} # kind -> true
+var had_walkoff_this_game := false
+var walkoff_time_left_at_trigger := -1.0
+var reveal_score_margin := 0 # score - opponent_score, captured once at the reveal
+var reveal_opponent_score := 0 # opponent_score at that same moment
+var hitting_streak_x3_timer := 0.0 # continuous seconds spent AT x3, resets on any dip
+var hitting_streak_x3_achieved := false # latched true once the timer ever reaches PERFECT_HANDS_SECONDS
+
 var pop_sound: AudioStreamWAV
 var whiff_sound: AudioStreamWAV
 
@@ -306,6 +321,8 @@ func _process(delta: float) -> void:
 		if not opponent_revealed:
 			if time_left <= OPPONENT_REVEAL_TIME_LEFT:
 				opponent_revealed = true
+				reveal_score_margin = score - opponent_score
+				reveal_opponent_score = opponent_score
 				_show_big_play("7TH INNING STRETCH!")
 			else:
 				decoy_tick_timer += delta
@@ -318,6 +335,15 @@ func _process(delta: float) -> void:
 		if hitting_streak_idle_timer >= HITTING_STREAK_DECAY_IDLE_SECONDS and hitting_streak_count > 0:
 			hitting_streak_count = 0
 			_update_hitting_streak_label()
+
+		# "Perfect Hands" achievement: a continuous, unbroken run at x3 —
+		# any dip below resets the clock rather than pausing it.
+		if hitting_streak_count >= HITTING_STREAK_MAX:
+			hitting_streak_x3_timer += delta
+			if hitting_streak_x3_timer >= PERFECT_HANDS_SECONDS:
+				hitting_streak_x3_achieved = true
+		else:
+			hitting_streak_x3_timer = 0.0
 
 		_update_board_events()
 
@@ -498,9 +524,46 @@ func _end_game() -> void:
 	game_over = true
 	_hide_powerup_buttons()
 	var did_win := score >= opponent_score
+	_check_game_achievements(did_win)
 	var stage_before: String = SeasonManager.stage
 	var stage_after: String = _record_result(did_win)
 	await _show_result_screen(stage_before, stage_after, did_win)
+
+
+## Reports this game to CareerManager and checks every in-game achievement
+## against this game's own tracked state. Season/career-level achievements
+## (Undefeated, Champion, Rivalry Won, Cinderella Story, Dynasty, Hall of
+## Famer) are handled entirely in SeasonManager instead, at the moment a
+## season actually resolves.
+func _check_game_achievements(did_win: bool) -> void:
+	CareerManager.record_game_result(did_win, error_tiles_matched_this_game > 0)
+
+	if stat_doubles > 0 and stat_triples > 0 and stat_home_runs > 0:
+		CareerManager.unlock("cycle_hitter")
+	if stat_grand_slams > 0:
+		CareerManager.unlock("grand_slam")
+	if whiff_count_this_game == 0:
+		CareerManager.unlock("sharpshooter")
+	if golden_ball_catches_this_game >= 5:
+		CareerManager.unlock("midas_touch")
+	if stat_mvp_blasts >= 3:
+		CareerManager.unlock("rainbow_connection")
+	if powerup_types_used_this_game.size() >= 3:
+		CareerManager.unlock("demolition_crew")
+	if hitting_streak_x3_achieved:
+		CareerManager.unlock("perfect_hands")
+
+	if did_win:
+		if had_walkoff_this_game:
+			CareerManager.unlock("walkoff_hero")
+			if walkoff_time_left_at_trigger >= SPEEDRUN_TIME_LEFT_THRESHOLD:
+				CareerManager.unlock("speedrun")
+		if reveal_score_margin < 0 and -reveal_score_margin >= reveal_opponent_score * COMEBACK_MARGIN_FRACTION:
+			CareerManager.unlock("comeback_kid")
+		if extra_innings_consumed:
+			CareerManager.unlock("bonus_time")
+		if powerup_types_used_this_game.is_empty():
+			CareerManager.unlock("nothing_but_net")
 
 
 ## "Blackthorn Vipers (1st)" — the team's name plus their current position
@@ -702,6 +765,7 @@ func _try_swap(a: Vector2i, b: Vector2i) -> void:
 		await get_tree().create_timer(0.15).timeout
 		_swap_tiles(a, b) # no match and no special activated, revert
 		_play_whiff()
+		whiff_count_this_game += 1
 		hitting_streak_count = 0
 		_update_hitting_streak_label()
 		is_busy = false
@@ -779,6 +843,7 @@ func _positions_for_powerup(kind: String, origin: Vector2i) -> Dictionary:
 func _use_powerup(kind: String, origin: Vector2i) -> void:
 	SeasonManager.spend_powerup(kind)
 	armed_powerup = ""
+	powerup_types_used_this_game[kind] = true
 	_update_powerup_buttons()
 	await _activate_powerup_clear(_positions_for_powerup(kind, origin))
 
@@ -1052,6 +1117,9 @@ func _resolve_matches(match_data: Dictionary, forced_label: String = "", hitting
 		for pos in positions.keys():
 			if board_events.get(pos, "") == "error":
 				error_hits.append(pos)
+		if golden_in_step:
+			golden_ball_catches_this_game += 1
+		error_tiles_matched_this_game += error_hits.size()
 
 		var max_run := 0
 		var home_run_run = null
@@ -1266,6 +1334,8 @@ func _trigger_walkoff() -> void:
 	is_paused = true
 	game_over = true
 	_hide_powerup_buttons()
+	had_walkoff_this_game = true
+	walkoff_time_left_at_trigger = time_left
 
 	# Record the result now, before the celebration — not after it. The
 	# celebration is a good ~4 real seconds (deliberately unaffected by the

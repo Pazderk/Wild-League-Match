@@ -134,6 +134,14 @@ offset_bottom = 890.0
 theme_override_font_sizes/font_size = 18
 text = "Restart Season"
 
+[node name="TrophyCaseButton" type="Button" parent="."]
+offset_left = 260.0
+offset_top = 900.0
+offset_right = 460.0
+offset_bottom = 945.0
+theme_override_font_sizes/font_size = 18
+text = "Trophy Case"
+
 [node name="RestartConfirmOverlay" type="Control" parent="."]
 visible = false
 offset_right = 720.0

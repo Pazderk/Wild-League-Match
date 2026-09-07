@@ -91,6 +91,9 @@ var regular_losses := 0
 var difficulty := "pro"
 # Set alongside difficulty at reset_season() — see DIFFICULTY_REGULAR_SEASON_GAMES.
 var regular_season_games := 7
+# For the "Rivalry Won" achievement — reset each season, set true the
+# moment a regular-season game against the Vipers is won.
+var beat_vipers_this_season := false
 
 # "regular", "semifinal", "finals", "champion", "eliminated_semis",
 # "eliminated_finals", "missed_playoffs"
@@ -231,6 +234,7 @@ func report_result(did_win: bool) -> void:
 		win_streak += 1
 		if win_streak % WIN_STREAK_INTERVAL == 0:
 			last_powerup_earned = _grant_random_powerup()
+		CareerManager.record_win_streak(win_streak)
 	else:
 		win_streak = 0
 
@@ -265,6 +269,8 @@ func _report_regular_result(did_win: bool) -> void:
 	if did_win:
 		records[team.name].wins += 1
 		regular_wins += 1
+		if team.name == RIVAL_NAME:
+			beat_vipers_this_season = true
 	else:
 		records[team.name].losses += 1
 		regular_losses += 1
@@ -306,8 +312,11 @@ func _report_series_result(did_win: bool, wins_needed: int, advance_stage: Strin
 		if advance_stage != "champion":
 			series_player_wins = 0
 			series_opponent_wins = 0
+		else:
+			_record_career_season_end()
 	elif series_opponent_wins >= wins_needed:
 		stage = eliminate_stage
+		_record_career_season_end()
 
 
 ## The full 8-team standings (the player + all 7 other teams) sorted by
@@ -340,10 +349,15 @@ func _finish_regular_season() -> void:
 
 	if player_seed == -1:
 		stage = "missed_playoffs"
+		_record_career_season_end()
 		return
 
 	_setup_playoff_bracket(top4, player_seed)
 	stage = "semifinal"
+
+
+func _record_career_season_end() -> void:
+	CareerManager.record_season_end(stage, difficulty, player_seed_index, regular_wins, regular_losses, beat_vipers_this_season)
 
 
 ## Seeds the 4-team bracket from the top 4 of the final standings using
@@ -536,6 +550,7 @@ func reset_season(new_difficulty: String = "") -> void:
 	if DIFFICULTY_LEVELS.has(new_difficulty):
 		difficulty = new_difficulty
 	regular_season_games = DIFFICULTY_REGULAR_SEASON_GAMES.get(difficulty, 7)
+	beat_vipers_this_season = false
 	records = {}
 	current_team_index = 0
 	regular_games_played = 0

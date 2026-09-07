@@ -25,6 +25,7 @@ window/stretch/aspect="expand"
 [autoload]
 
 SeasonManager="*res://scripts/season_manager.gd"
+CareerManager="*res://scripts/career_manager.gd"
 
 [physics]
 
