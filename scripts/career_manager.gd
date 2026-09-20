@@ -10,20 +10,20 @@ const SAVE_PATH := "user://career_save.json"
 ## id -> {"name": String, "description": String}. Order here is display
 ## order in the Trophy Case.
 const ACHIEVEMENTS := {
-	"cycle_hitter": {"name": "Cycle Hitter", "description": "Hit a Double, a Triple, and a Home Run all in the same game."},
-	"grand_slam": {"name": "Grand Slam", "description": "Fill the Big Play Gauge and trigger a Rally."},
-	"walkoff_hero": {"name": "Walk-off Hero", "description": "Win a game with a Walk-off Win."},
+	"triple_threat": {"name": "Triple Threat", "description": "Get a First Down, a Big Gain, and a Touchdown all in the same game."},
+	"hail_mary": {"name": "Hail Mary", "description": "Fill the Big Play Gauge and trigger a Rally."},
+	"game_winner": {"name": "Game Winner", "description": "Win a game on a Game Winner."},
 	"sharpshooter": {"name": "Sharpshooter", "description": "Finish a game without a single whiffed swap."},
-	"speedrun": {"name": "Speedrun", "description": "Win with a Walk-off while 20+ seconds are still on the clock."},
-	"comeback_kid": {"name": "Comeback Kid", "description": "Win after trailing by a wide margin at the 7th Inning Stretch reveal."},
+	"speedrun": {"name": "Speedrun", "description": "Win with a Game Winner while 20+ seconds are still on the clock."},
+	"comeback_kid": {"name": "Comeback Kid", "description": "Win after trailing by a wide margin at the Two-Minute Warning reveal."},
 	"midas_touch": {"name": "Midas Touch", "description": "Catch the Golden Ball 5+ times in one game."},
-	"error_free": {"name": "Error-Free", "description": "Finish 3 straight games without ever matching an Error Tile."},
-	"bonus_time": {"name": "Bonus Time", "description": "Win a game using a banked Extra Innings."},
+	"fumble_free": {"name": "Fumble-Free", "description": "Finish 3 straight games without ever matching a Fumble Tile."},
+	"bonus_time": {"name": "Bonus Time", "description": "Win a game using a banked Overtime."},
 	"rainbow_connection": {"name": "Rainbow Connection", "description": "Trigger the Rainbow tile's color clear 3 times in one game."},
 	"nothing_but_net": {"name": "Nothing But Net", "description": "Win a game without using any power-up."},
 	"demolition_crew": {"name": "Demolition Crew", "description": "Use all 3 power-up types in a single game."},
 	"hot_streak": {"name": "Hot Streak", "description": "Reach a 5-game win streak."},
-	"perfect_hands": {"name": "Perfect Hands", "description": "Hold a x3 Hitting Streak for a continuous 30 seconds in one game."},
+	"perfect_hands": {"name": "Perfect Hands", "description": "Hold a x3 Completion Streak for a continuous 30 seconds in one game."},
 	"undefeated": {"name": "Undefeated", "description": "Finish a perfect regular season."},
 	"champion": {"name": "Champion", "description": "Win the Finals."},
 	"rivalry_won": {"name": "Rivalry Won", "description": "Beat the Vipers in a regular season game, then win the Finals that same season."},
@@ -40,8 +40,8 @@ var championships_by_difficulty := {"rookie": 0, "pro": 0, "all_star": 0, "hall_
 var longest_win_streak_ever := 0
 var consecutive_championships := 0
 # Rolls across the whole career, independent of season boundaries — an
-# error-tile-free game increments it, a game with one matched resets it.
-var error_free_streak := 0
+# fumble-tile-free game increments it, a game with one matched resets it.
+var fumble_free_streak := 0
 var unlocked_achievements := {} # id -> true
 
 # Achievements unlocked by the most recent call into this autoload, for
@@ -68,20 +68,20 @@ func unlock(id: String) -> bool:
 
 
 ## Called once per completed game (any outcome, any stage) — updates the
-## career win/loss totals and the rolling Error-Free streak.
-func record_game_result(did_win: bool, error_tile_matched: bool) -> void:
+## career win/loss totals and the rolling Fumble-Free streak.
+func record_game_result(did_win: bool, fumble_tile_matched: bool) -> void:
 	newly_unlocked = []
 	if did_win:
 		career_wins += 1
 	else:
 		career_losses += 1
 
-	if error_tile_matched:
-		error_free_streak = 0
+	if fumble_tile_matched:
+		fumble_free_streak = 0
 	else:
-		error_free_streak += 1
-		if error_free_streak >= 3:
-			unlock("error_free")
+		fumble_free_streak += 1
+		if fumble_free_streak >= 3:
+			unlock("fumble_free")
 
 	_save()
 
@@ -136,7 +136,7 @@ func _save() -> void:
 		"championships_by_difficulty": championships_by_difficulty,
 		"longest_win_streak_ever": longest_win_streak_ever,
 		"consecutive_championships": consecutive_championships,
-		"error_free_streak": error_free_streak,
+		"fumble_free_streak": fumble_free_streak,
 		"unlocked_achievements": unlocked_achievements,
 	}
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
@@ -164,5 +164,5 @@ func _load() -> void:
 	championships_by_difficulty = parsed.get("championships_by_difficulty", {"rookie": 0, "pro": 0, "all_star": 0, "hall_of_fame": 0})
 	longest_win_streak_ever = parsed.get("longest_win_streak_ever", 0)
 	consecutive_championships = parsed.get("consecutive_championships", 0)
-	error_free_streak = parsed.get("error_free_streak", 0)
+	fumble_free_streak = parsed.get("fumble_free_streak", 0)
 	unlocked_achievements = parsed.get("unlocked_achievements", {})
