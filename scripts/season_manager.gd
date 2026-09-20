@@ -32,8 +32,8 @@ const PLAYOFF_SCORE_BOOST := 1.18 # tougher score ranges once the postseason sta
 # Difficulty: chosen when starting a fresh season, locked in for its whole
 # duration (can't change mid-season, same as the team name can but doesn't
 # need to be). "pro" is the untouched baseline — today's team score ranges
-# are tuned around it. Also drives how many Error Tiles show up per game
-# (see board.gd's DIFFICULTY_ERROR_TILE_TIMES) — harder difficulties get
+# are tuned around it. Also drives how many Fumble Tiles show up per game
+# (see board.gd's DIFFICULTY_FUMBLE_TILE_TIMES) — harder difficulties get
 # more of them, not just tougher scores.
 const DIFFICULTY_LEVELS := ["rookie", "pro", "all_star", "hall_of_fame"]
 const DIFFICULTY_DISPLAY_NAMES := {
@@ -48,7 +48,7 @@ const DIFFICULTY_SCORE_MULTIPLIERS := {
 	"all_star": 1.2,
 	"hall_of_fame": 1.5,
 }
-const DIFFICULTY_ERROR_TILE_TIMES := {
+const DIFFICULTY_FUMBLE_TILE_TIMES := {
 	"rookie": [15.0, 40.0],
 	"pro": [15.0, 40.0],
 	"all_star": [15.0, 32.0, 49.0],
