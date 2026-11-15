@@ -39,7 +39,7 @@ theme_override_font_sizes/font_size = 20
 horizontal_alignment = 2
 text = "RALLY! x2 (10s)"
 
-[node name="HittingStreakLabel" type="Label" parent="."]
+[node name="CompletionStreakLabel" type="Label" parent="."]
 visible = false
 offset_left = 20.0
 offset_top = 88.0
@@ -47,7 +47,7 @@ offset_right = 420.0
 offset_bottom = 114.0
 theme_override_colors/font_color = Color(1, 0.55, 0.15, 1)
 theme_override_font_sizes/font_size = 20
-text = "HITTING STREAK x3"
+text = "COMPLETION STREAK x3"
 
 [node name="TugBar" type="Control" parent="."]
 offset_left = 20.0
@@ -130,7 +130,7 @@ offset_bottom = 474.0
 theme_override_font_sizes/font_size = 44
 horizontal_alignment = 1
 vertical_alignment = 1
-text = "HOME RUN!"
+text = "TOUCHDOWN!"
 
 [node name="RallyAnnouncement" type="Control" parent="."]
 visible = false
@@ -152,10 +152,10 @@ theme_override_colors/font_color = Color(1, 0.85, 0.2, 1)
 theme_override_font_sizes/font_size = 56
 horizontal_alignment = 1
 vertical_alignment = 1
-text = "GRAND SLAM!
+text = "HAIL MARY!
 RALLY TIME!"
 
-[node name="WalkoffLabel" type="Label" parent="RallyAnnouncement"]
+[node name="GameWinnerLabel" type="Label" parent="RallyAnnouncement"]
 visible = false
 offset_left = 10.0
 offset_top = 390.0
@@ -165,7 +165,7 @@ theme_override_colors/font_color = Color(1, 0.75, 0.1, 1)
 theme_override_font_sizes/font_size = 80
 horizontal_alignment = 1
 vertical_alignment = 1
-text = "WALK-OFF WIN!"
+text = "GAME WINNER!"
 
 [node name="TrophyDrawing" type="Node2D" parent="RallyAnnouncement"]
 visible = false
@@ -304,8 +304,8 @@ offset_right = 580.0
 offset_bottom = 280.0
 theme_override_font_sizes/font_size = 18
 horizontal_alignment = 1
-text = "Doubles: 0   Triples: 0   Home Runs: 0
-Grand Slams: 0   MVP Blasts: 0   Longest Cascade: 0
+text = "First Downs: 0   Big Gains: 0   Touchdowns: 0
+Hail Marys: 0   MVP Blasts: 0   Longest Cascade: 0
 
 vs Team: 0-0      Season: 0-0"
 

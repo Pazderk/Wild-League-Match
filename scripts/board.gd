@@ -2,7 +2,7 @@ extends Node2D
 
 ## One "game": an 8x8 swap-3 board played against a running clock, racing a
 ## hidden opponent score that's revealed with 15 seconds left. Beat it when
-## time runs out (or hit a Walk-off Win in that final stretch) to win.
+## time runs out (or score a Game Winner in that final stretch) to win.
 ##
 ## Tiles never move as nodes — we swap/shift the `gem_type`/`special_type`
 ## values stored on each fixed-position tile, which keeps match/gravity logic
@@ -15,11 +15,11 @@ const GEM_TYPES := 6
 const BASE_POINTS := 10
 const SESSION_SECONDS := 60.0
 
-const CASCADE_EVENTS := ["STOLEN BASE!", "STRUCK 'EM OUT!", "DIVING CATCH!"]
+const CASCADE_EVENTS := ["BROKEN TACKLE!", "SACKED 'EM!", "DIVING CATCH!"]
 
 # Big Play Gauge: fills from match points (paused while a Rally is active so
 # it reads as a build-up/payoff rhythm rather than a permanent state). Full
-# gauge triggers a "Grand Slam!" Rally window with a flat score multiplier.
+# gauge triggers a "Hail Mary!" Rally window with a flat score multiplier.
 const RALLY_METER_MAX := 1500.0
 const RALLY_DURATION := 10.0
 const RALLY_MULTIPLIER := 2
@@ -29,10 +29,11 @@ const RALLY_MULTIPLIER := 2
 # cascade — capping keeps chains exciting without blowing up the scoreboard.
 const MAX_CHAIN_MULTIPLIER := 3
 
-# A Double or Triple still always scores and builds the Rally meter — this
-# only thins out how often the resulting All-Star tile (line-blast / area-
-# blast) actually spawns, so those bonus tiles stay a rarer treat instead of
-# appearing on essentially every 4-run or double-3.
+# A First Down or Big Gain still always scores and builds the Rally meter —
+# this only thins out how often the resulting All-Star tile (line-blast /
+# area-blast) actually spawns, so those bonus tiles stay a rarer treat
+# instead of appearing on essentially every 4-run match or every double
+# 3-run match.
 const SPECIAL_TILE_SPAWN_CHANCE := 0.5
 
 # How long the Rally announcement freezes the game before play (and the
@@ -41,7 +42,7 @@ const RALLY_ANNOUNCE_DURATION := 2.0
 
 # The opponent's real score is rolled (from the current team's range) and
 # fixed at game start, but stays hidden until this many seconds remain — a
-# Walk-off Win can't happen before the reveal, so the earliest one can ever
+# Game Winner can't happen before the reveal, so the earliest one can ever
 # fire is right at this mark. Until then the HUD shows a decoy number (an
 # independent second roll from the same team's range) climbing toward its
 # own ceiling, so most of the game shows *a* live-looking number without
@@ -52,14 +53,14 @@ const DECOY_TICK_MAX := 5.0
 
 # Consecutive successful swaps build a small bonus on top of everything else;
 # a whiffed swap or a few idle seconds resets it.
-const HITTING_STREAK_DECAY_IDLE_SECONDS := 2.0
-const HITTING_STREAK_MAX := 3
-const HITTING_STREAK_BONUS_PER_STACK := 0.1
+const COMPLETION_STREAK_DECAY_IDLE_SECONDS := 2.0
+const COMPLETION_STREAK_MAX := 3
+const COMPLETION_STREAK_BONUS_PER_STACK := 0.1
 
-# Walk-off celebration: real-world seconds the slow-motion beat lasts,
+# Game Winner celebration: real-world seconds the slow-motion beat lasts,
 # regardless of the slow-mo time scale itself.
-const WALKOFF_SLOWMO_SCALE := 0.4
-const WALKOFF_CELEBRATION_SECONDS := 4.0
+const GAME_WINNER_SLOWMO_SCALE := 0.4
+const GAME_WINNER_CELEBRATION_SECONDS := 4.0
 
 # Behind when time runs out: this many more swap attempts (hits or misses
 # both count against the total) before the game ends regardless of outcome —
@@ -73,13 +74,13 @@ const GOLDEN_BALL_TIME_LEFT := 20.0 # spawns once this much time remains
 const GOLDEN_TILE_VALUE_MULTIPLIER := 3.0 # counts as this many tiles' worth of base score
 
 # Spawn schedule scales with SeasonManager.difficulty — see
-# SeasonManager.DIFFICULTY_ERROR_TILE_TIMES. Harder difficulties get more
-# error tiles per game, not just tougher scores.
-const ERROR_TILE_PENALTY := 400
+# SeasonManager.DIFFICULTY_FUMBLE_TILE_TIMES. Harder difficulties get more
+# fumble tiles per game, not just tougher scores.
+const FUMBLE_TILE_PENALTY := 400
 
-const EXTRA_INNINGS_ELAPSED_SPAWN := 30.0
-const EXTRA_INNINGS_VISIBLE_SECONDS := 5.0
-const EXTRA_INNINGS_BONUS_SECONDS := 10.0
+const OVERTIME_ELAPSED_SPAWN := 30.0
+const OVERTIME_VISIBLE_SECONDS := 5.0
+const OVERTIME_BONUS_SECONDS := 10.0
 
 # Tug-of-war meter: how much score lead (in either direction) fully
 # saturates the bar to one side, scaled off the current game's own target
@@ -104,7 +105,7 @@ const TileScene := preload("res://scenes/tile.tscn")
 @onready var opponent_label: Label = $TargetLabel
 @onready var time_label: Label = $TimeLabel
 @onready var big_play_label: Label = $BigPlayLabel
-@onready var hitting_streak_label: Label = $HittingStreakLabel
+@onready var completion_streak_label: Label = $CompletionStreakLabel
 @onready var tug_bar_background: ColorRect = $TugBar/TugBarBackground
 @onready var tug_bar_player_fill: ColorRect = $TugBar/TugBarPlayerFill
 @onready var tug_bar_opponent_fill: ColorRect = $TugBar/TugBarOpponentFill
@@ -113,7 +114,7 @@ const TileScene := preload("res://scenes/tile.tscn")
 @onready var rally_status_label: Label = $RallyStatusLabel
 @onready var rally_announcement: Control = $RallyAnnouncement
 @onready var rally_announce_label: Label = $RallyAnnouncement/AnnounceLabel
-@onready var walkoff_label: Label = $RallyAnnouncement/WalkoffLabel
+@onready var game_winner_label: Label = $RallyAnnouncement/GameWinnerLabel
 @onready var champion_label: Label = $RallyAnnouncement/ChampionLabel
 @onready var playoff_intro_label: Label = $RallyAnnouncement/PlayoffIntroLabel
 @onready var trophy_drawing: Node2D = $RallyAnnouncement/TrophyDrawing
@@ -158,26 +159,26 @@ var time_up_handled := false
 var final_moves_remaining := 0
 var season_over := false
 
-# Board-event tiles currently on the board: Vector2i -> "golden" | "error" |
-# "extra_innings". golden_pos / extra_innings_pos additionally track those
+# Board-event tiles currently on the board: Vector2i -> "golden" | "fumble" |
+# "overtime". golden_pos / overtime_pos additionally track those
 # two by dedicated position (there's at most one of each at a time, unlike
-# error tiles, which can have several live simultaneously — how many
-# depends on difficulty, see error_tile_elapsed_times below).
+# fumble tiles, which can have several live simultaneously — how many
+# depends on difficulty, see fumble_tile_elapsed_times below).
 var board_events := {}
 var golden_pos := Vector2i(-1, -1)
 var golden_spawned := false
-var error_tile_elapsed_times: Array = [] # set in _ready() from SeasonManager.difficulty
-var error_tiles_spawned: Array = [] # parallel to error_tile_elapsed_times
-var extra_innings_pos := Vector2i(-1, -1)
-var extra_innings_spawned := false
-var extra_innings_expire_at := -1.0 # time_left value at which it vanishes unclaimed
+var fumble_tile_elapsed_times: Array = [] # set in _ready() from SeasonManager.difficulty
+var fumble_tiles_spawned: Array = [] # parallel to fumble_tile_elapsed_times
+var overtime_pos := Vector2i(-1, -1)
+var overtime_spawned := false
+var overtime_expire_at := -1.0 # time_left value at which it vanishes unclaimed
 # Set when the icon is matched; the bonus itself is deferred to time-up
 # rather than applied immediately, so it reads as genuine added time at the
 # end rather than an invisible mid-game top-up. Only spent if the player is
 # still behind when the main clock runs out — an already-winning score just
 # ends the game as normal, same as it always has.
-var extra_innings_earned := false
-var extra_innings_consumed := false
+var overtime_earned := false
+var overtime_consumed := false
 
 var opponent_score := 0
 var opponent_revealed := false
@@ -186,13 +187,13 @@ var decoy_ceiling := 0
 var decoy_tick_timer := 0.0
 var decoy_next_tick := 0.0
 
-var hitting_streak_count := 0
-var hitting_streak_idle_timer := 0.0
+var completion_streak_count := 0
+var completion_streak_idle_timer := 0.0
 
-var stat_doubles := 0
-var stat_triples := 0
-var stat_home_runs := 0
-var stat_grand_slams := 0
+var stat_first_downs := 0
+var stat_big_gains := 0
+var stat_touchdowns := 0
+var stat_hail_marys := 0
 var stat_mvp_blasts := 0
 var stat_longest_cascade := 0
 
@@ -202,14 +203,14 @@ const SPEEDRUN_TIME_LEFT_THRESHOLD := 20.0
 const PERFECT_HANDS_SECONDS := 30.0
 var whiff_count_this_game := 0
 var golden_ball_catches_this_game := 0
-var error_tiles_matched_this_game := 0
+var fumble_tiles_matched_this_game := 0
 var powerup_types_used_this_game := {} # kind -> true
-var had_walkoff_this_game := false
-var walkoff_time_left_at_trigger := -1.0
+var had_game_winner_this_game := false
+var game_winner_time_left_at_trigger := -1.0
 var reveal_score_margin := 0 # score - opponent_score, captured once at the reveal
 var reveal_opponent_score := 0 # opponent_score at that same moment
-var hitting_streak_x3_timer := 0.0 # continuous seconds spent AT x3, resets on any dip
-var hitting_streak_x3_achieved := false # latched true once the timer ever reaches PERFECT_HANDS_SECONDS
+var completion_streak_x3_timer := 0.0 # continuous seconds spent AT x3, resets on any dip
+var completion_streak_x3_achieved := false # latched true once the timer ever reaches PERFECT_HANDS_SECONDS
 
 var pop_sound: AudioStreamWAV
 var whiff_sound: AudioStreamWAV
@@ -219,9 +220,9 @@ func _ready() -> void:
 	randomize()
 	_build_board()
 
-	error_tile_elapsed_times = SeasonManager.DIFFICULTY_ERROR_TILE_TIMES.get(SeasonManager.difficulty, [15.0, 40.0])
-	error_tiles_spawned.resize(error_tile_elapsed_times.size())
-	error_tiles_spawned.fill(false)
+	fumble_tile_elapsed_times = SeasonManager.DIFFICULTY_FUMBLE_TILE_TIMES.get(SeasonManager.difficulty, [15.0, 40.0])
+	fumble_tiles_spawned.resize(fumble_tile_elapsed_times.size())
+	fumble_tiles_spawned.fill(false)
 
 	var team: Dictionary = SeasonManager.get_current_opponent()
 	current_team_name = team.name
@@ -236,7 +237,7 @@ func _ready() -> void:
 	rally_bar.value = 0.0
 	rally_status_label.visible = false
 	rally_announcement.visible = false
-	hitting_streak_label.visible = false
+	completion_streak_label.visible = false
 	champion_label.visible = false
 	trophy_drawing.visible = false
 	playoff_intro_label.visible = false
@@ -295,12 +296,12 @@ func _show_playoff_intro() -> void:
 	# This can run several lines long (especially the first Finals game, with
 	# the other-semifinal recap appended) — it gets its own smaller, taller
 	# label instead of squeezing into AnnounceLabel, which is sized and sized
-	# up for a short one- or two-line hype line like "GRAND SLAM!". Since
+	# up for a short one- or two-line hype line like "HAIL MARY!". Since
 	# AnnounceLabel has no default-hidden state of its own (every other
 	# announcement explicitly hides it first), it must be hidden here too,
 	# or its leftover text sits visible underneath, overlapping this one.
 	rally_announce_label.visible = false
-	walkoff_label.visible = false
+	game_winner_label.visible = false
 	playoff_intro_label.visible = true
 	playoff_intro_label.text = text
 	rally_announcement.visible = true
@@ -323,7 +324,7 @@ func _process(delta: float) -> void:
 				opponent_revealed = true
 				reveal_score_margin = score - opponent_score
 				reveal_opponent_score = opponent_score
-				_show_big_play("7TH INNING STRETCH!")
+				_show_big_play("TWO-MINUTE WARNING!")
 			else:
 				decoy_tick_timer += delta
 				if decoy_tick_timer >= decoy_next_tick:
@@ -331,19 +332,19 @@ func _process(delta: float) -> void:
 					decoy_next_tick = randf_range(DECOY_TICK_MIN, DECOY_TICK_MAX)
 					_tick_decoy_score()
 
-		hitting_streak_idle_timer += delta
-		if hitting_streak_idle_timer >= HITTING_STREAK_DECAY_IDLE_SECONDS and hitting_streak_count > 0:
-			hitting_streak_count = 0
-			_update_hitting_streak_label()
+		completion_streak_idle_timer += delta
+		if completion_streak_idle_timer >= COMPLETION_STREAK_DECAY_IDLE_SECONDS and completion_streak_count > 0:
+			completion_streak_count = 0
+			_update_completion_streak_label()
 
 		# "Perfect Hands" achievement: a continuous, unbroken run at x3 —
 		# any dip below resets the clock rather than pausing it.
-		if hitting_streak_count >= HITTING_STREAK_MAX:
-			hitting_streak_x3_timer += delta
-			if hitting_streak_x3_timer >= PERFECT_HANDS_SECONDS:
-				hitting_streak_x3_achieved = true
+		if completion_streak_count >= COMPLETION_STREAK_MAX:
+			completion_streak_x3_timer += delta
+			if completion_streak_x3_timer >= PERFECT_HANDS_SECONDS:
+				completion_streak_x3_achieved = true
 		else:
-			hitting_streak_x3_timer = 0.0
+			completion_streak_x3_timer = 0.0
 
 		_update_board_events()
 
@@ -378,7 +379,7 @@ func _tick_decoy_score() -> void:
 
 ## Keeps the opponent's numeric label and the tug-of-war bar in sync every
 ## frame, using the decoy score before the reveal and the real one after —
-## so a change to the real opponent_score (an error tile penalty, say) shows
+## so a change to the real opponent_score (an fumble tile penalty, say) shows
 ## up immediately even if it happens well after the reveal already passed.
 func _update_opponent_display() -> void:
 	var shown_score: int = opponent_score if opponent_revealed else decoy_score
@@ -419,39 +420,39 @@ func _update_time_label() -> void:
 
 
 ## When the clock hits zero: an already-winning score ends the game normally
-## regardless of whether Extra Innings was ever earned — there's no reason
+## regardless of whether Overtime was ever earned — there's no reason
 ## to extend a game that's already won. A losing score spends a banked
-## Extra Innings bonus first if there is one (genuine bonus time, not the
+## Overtime bonus first if there is one (genuine bonus time, not the
 ## mid-game top-up it used to be — the clock actually resumes and normal
 ## play continues for that long), and only once that's used up — or if none
 ## was ever earned — falls back to FINAL_CHANCE_SWAPS bonus, untimed swaps
-## ("3 outs") before the game ends regardless of outcome. A swap that
-## crosses the target still wins immediately, same as any other walkoff;
+## (final snaps) before the game ends regardless of outcome. A swap that
+## crosses the target still wins immediately, same as any other game winner;
 ## hitting or whiffing otherwise both use up one of the swaps.
 func _handle_time_up() -> void:
 	if score >= opponent_score:
 		_end_game()
 		return
 
-	if extra_innings_earned and not extra_innings_consumed:
-		extra_innings_consumed = true
+	if overtime_earned and not overtime_consumed:
+		overtime_consumed = true
 		is_paused = true
 		rally_announce_label.visible = true
-		walkoff_label.visible = false
-		rally_announce_label.text = "EXTRA INNINGS!\n+%d seconds!" % int(EXTRA_INNINGS_BONUS_SECONDS)
+		game_winner_label.visible = false
+		rally_announce_label.text = "OVERTIME!\n+%d seconds!" % int(OVERTIME_BONUS_SECONDS)
 		rally_announcement.visible = true
 		await get_tree().create_timer(2.0).timeout
 		rally_announcement.visible = false
 		is_paused = false
 
-		time_left += EXTRA_INNINGS_BONUS_SECONDS
+		time_left += OVERTIME_BONUS_SECONDS
 		_update_time_label()
 		time_up_handled = false # let the clock naturally re-trigger this once the bonus time also runs out
 		return
 
 	is_paused = true
 	rally_announce_label.visible = true
-	walkoff_label.visible = false
+	game_winner_label.visible = false
 	rally_announce_label.text = "FINAL CHANCE!\n%d swaps to win it!" % FINAL_CHANCE_SWAPS
 	rally_announcement.visible = true
 	await get_tree().create_timer(2.0).timeout
@@ -464,8 +465,8 @@ func _handle_time_up() -> void:
 
 
 func _box_score_text() -> String:
-	return "Doubles: %d   Triples: %d   Home Runs: %d\nGrand Slams: %d   MVP Blasts: %d   Longest Cascade: %d" % [
-		stat_doubles, stat_triples, stat_home_runs, stat_grand_slams, stat_mvp_blasts, stat_longest_cascade
+	return "First Downs: %d   Big Gains: %d   Touchdowns: %d\nHail Marys: %d   MVP Blasts: %d   Longest Cascade: %d" % [
+		stat_first_downs, stat_big_gains, stat_touchdowns, stat_hail_marys, stat_mvp_blasts, stat_longest_cascade
 	]
 
 
@@ -476,7 +477,7 @@ func _hide_powerup_buttons() -> void:
 
 
 ## Reports this game's result to SeasonManager (and with it, the disk save)
-## immediately — never gated behind a celebration animation. A Walk-off Win
+## immediately — never gated behind a celebration animation. A Game Winner
 ## used to defer this behind its ~4-second real-time celebration, which
 ## meant the result wasn't actually persisted until that celebration
 ## finished; closing the app during it would have silently lost the win.
@@ -536,12 +537,12 @@ func _end_game() -> void:
 ## Famer) are handled entirely in SeasonManager instead, at the moment a
 ## season actually resolves.
 func _check_game_achievements(did_win: bool) -> void:
-	CareerManager.record_game_result(did_win, error_tiles_matched_this_game > 0)
+	CareerManager.record_game_result(did_win, fumble_tiles_matched_this_game > 0)
 
-	if stat_doubles > 0 and stat_triples > 0 and stat_home_runs > 0:
-		CareerManager.unlock("cycle_hitter")
-	if stat_grand_slams > 0:
-		CareerManager.unlock("grand_slam")
+	if stat_first_downs > 0 and stat_big_gains > 0 and stat_touchdowns > 0:
+		CareerManager.unlock("triple_threat")
+	if stat_hail_marys > 0:
+		CareerManager.unlock("hail_mary")
 	if whiff_count_this_game == 0:
 		CareerManager.unlock("sharpshooter")
 	if golden_ball_catches_this_game >= 5:
@@ -550,17 +551,17 @@ func _check_game_achievements(did_win: bool) -> void:
 		CareerManager.unlock("rainbow_connection")
 	if powerup_types_used_this_game.size() >= 3:
 		CareerManager.unlock("demolition_crew")
-	if hitting_streak_x3_achieved:
+	if completion_streak_x3_achieved:
 		CareerManager.unlock("perfect_hands")
 
 	if did_win:
-		if had_walkoff_this_game:
-			CareerManager.unlock("walkoff_hero")
-			if walkoff_time_left_at_trigger >= SPEEDRUN_TIME_LEFT_THRESHOLD:
+		if had_game_winner_this_game:
+			CareerManager.unlock("game_winner")
+			if game_winner_time_left_at_trigger >= SPEEDRUN_TIME_LEFT_THRESHOLD:
 				CareerManager.unlock("speedrun")
 		if reveal_score_margin < 0 and -reveal_score_margin >= reveal_opponent_score * COMEBACK_MARGIN_FRACTION:
 			CareerManager.unlock("comeback_kid")
-		if extra_innings_consumed:
+		if overtime_consumed:
 			CareerManager.unlock("bonus_time")
 		if powerup_types_used_this_game.is_empty():
 			CareerManager.unlock("nothing_but_net")
@@ -649,7 +650,7 @@ func _show_champion_screen() -> void:
 	is_paused = true
 
 	rally_announce_label.visible = false
-	walkoff_label.visible = false
+	game_winner_label.visible = false
 	champion_label.visible = true
 	trophy_drawing.visible = true
 	rally_announcement.visible = true
@@ -743,7 +744,7 @@ func _is_adjacent(a: Vector2i, b: Vector2i) -> bool:
 ## no ordinary color-match, which is what makes these feel deliberate rather
 ## than incidental. An MVP Ball (color bomb) additionally targets whichever
 ## gem color it's swapped into (or clears the whole board if swapped with
-## another MVP Ball). A successful swap builds the Hitting Streak; a whiff
+## another MVP Ball). A successful swap builds the Completion Streak; a whiff
 ## resets it.
 func _try_swap(a: Vector2i, b: Vector2i) -> void:
 	is_busy = true
@@ -766,17 +767,17 @@ func _try_swap(a: Vector2i, b: Vector2i) -> void:
 		_swap_tiles(a, b) # no match and no special activated, revert
 		_play_whiff()
 		whiff_count_this_game += 1
-		hitting_streak_count = 0
-		_update_hitting_streak_label()
+		completion_streak_count = 0
+		_update_completion_streak_label()
 		is_busy = false
 		_consume_final_chance_swap()
 	else:
-		hitting_streak_count = min(hitting_streak_count + 1, HITTING_STREAK_MAX)
-		hitting_streak_idle_timer = 0.0
-		_update_hitting_streak_label()
-		var hitting_streak_multiplier: float = 1.0 + HITTING_STREAK_BONUS_PER_STACK * hitting_streak_count
+		completion_streak_count = min(completion_streak_count + 1, COMPLETION_STREAK_MAX)
+		completion_streak_idle_timer = 0.0
+		_update_completion_streak_label()
+		var completion_streak_multiplier: float = 1.0 + COMPLETION_STREAK_BONUS_PER_STACK * completion_streak_count
 
-		await _resolve_matches(match_data, forced_label, hitting_streak_multiplier)
+		await _resolve_matches(match_data, forced_label, completion_streak_multiplier)
 		is_busy = false
 
 		if not _consume_final_chance_swap() and not game_over and not _has_valid_move():
@@ -886,7 +887,7 @@ func _activate_powerup_clear(positions: Dictionary) -> void:
 ## Consumes one attempt during "FINAL CHANCE" (a hit or a miss both count) —
 ## ends the game once the counter runs out, or immediately if this swap
 ## already crossed the target (an ordinary win, even without a dramatic
-## Walk-off). A no-op outside of FINAL CHANCE. Returns true if it ended the
+## Game Winner). A no-op outside of FINAL CHANCE. Returns true if it ended the
 ## game, so callers can skip their own reshuffle-check in that case.
 func _consume_final_chance_swap() -> bool:
 	if final_moves_remaining <= 0 or game_over:
@@ -899,10 +900,10 @@ func _consume_final_chance_swap() -> bool:
 	return false
 
 
-func _update_hitting_streak_label() -> void:
-	hitting_streak_label.visible = hitting_streak_count >= 2
-	if hitting_streak_count >= 2:
-		hitting_streak_label.text = "HITTING STREAK x%d" % hitting_streak_count
+func _update_completion_streak_label() -> void:
+	completion_streak_label.visible = completion_streak_count >= 2
+	if completion_streak_count >= 2:
+		completion_streak_label.text = "COMPLETION STREAK x%d" % completion_streak_count
 
 
 func _trigger_color_bomb(bomb_pos: Vector2i, partner_pos: Vector2i, positions: Dictionary) -> void:
@@ -935,7 +936,7 @@ func _swap_tiles(a: Vector2i, b: Vector2i) -> void:
 	_move_board_event_tracking(a, b)
 
 
-## Keeps board_events (and the dedicated golden_pos / extra_innings_pos
+## Keeps board_events (and the dedicated golden_pos / overtime_pos
 ## trackers) in sync with a true two-way swap (_swap_tiles): whatever was at
 ## a and b trade places.
 func _move_board_event_tracking(a: Vector2i, b: Vector2i) -> void:
@@ -957,10 +958,10 @@ func _move_board_event_tracking(a: Vector2i, b: Vector2i) -> void:
 		golden_pos = b
 	elif golden_pos == b:
 		golden_pos = a
-	if extra_innings_pos == a:
-		extra_innings_pos = b
-	elif extra_innings_pos == b:
-		extra_innings_pos = a
+	if overtime_pos == a:
+		overtime_pos = b
+	elif overtime_pos == b:
+		overtime_pos = a
 
 
 ## One-way version for _apply_gravity's shift-down copy: whatever event tag
@@ -977,12 +978,12 @@ func _copy_board_event_tracking(src: Vector2i, dst: Vector2i) -> void:
 
 	if golden_pos == src:
 		golden_pos = dst
-	if extra_innings_pos == src:
-		extra_innings_pos = dst
+	if overtime_pos == src:
+		overtime_pos = dst
 
 
 ## Spawns each board-event tile at its scheduled elapsed time, and expires
-## the Extra Innings icon if its short visible window passes unclaimed.
+## the Overtime icon if its short visible window passes unclaimed.
 func _update_board_events() -> void:
 	var elapsed: float = SESSION_SECONDS - time_left
 
@@ -990,19 +991,19 @@ func _update_board_events() -> void:
 		golden_spawned = true
 		golden_pos = _spawn_board_event("golden")
 
-	for i in range(error_tile_elapsed_times.size()):
-		if not error_tiles_spawned[i] and elapsed >= error_tile_elapsed_times[i]:
-			error_tiles_spawned[i] = true
-			_spawn_board_event("error")
+	for i in range(fumble_tile_elapsed_times.size()):
+		if not fumble_tiles_spawned[i] and elapsed >= fumble_tile_elapsed_times[i]:
+			fumble_tiles_spawned[i] = true
+			_spawn_board_event("fumble")
 
-	if not extra_innings_spawned and elapsed >= EXTRA_INNINGS_ELAPSED_SPAWN:
-		extra_innings_spawned = true
-		extra_innings_pos = _spawn_board_event("extra_innings")
-		if extra_innings_pos != Vector2i(-1, -1):
-			extra_innings_expire_at = time_left - EXTRA_INNINGS_VISIBLE_SECONDS
+	if not overtime_spawned and elapsed >= OVERTIME_ELAPSED_SPAWN:
+		overtime_spawned = true
+		overtime_pos = _spawn_board_event("overtime")
+		if overtime_pos != Vector2i(-1, -1):
+			overtime_expire_at = time_left - OVERTIME_VISIBLE_SECONDS
 
-	if extra_innings_pos != Vector2i(-1, -1) and time_left <= extra_innings_expire_at:
-		_expire_extra_innings()
+	if overtime_pos != Vector2i(-1, -1) and time_left <= overtime_expire_at:
+		_expire_overtime()
 
 
 ## Places a new board-event tile of the given kind on a random plain (no
@@ -1023,11 +1024,11 @@ func _spawn_board_event(kind: String) -> Vector2i:
 	return pos
 
 
-func _expire_extra_innings() -> void:
-	if extra_innings_pos != Vector2i(-1, -1):
-		grid[extra_innings_pos.x][extra_innings_pos.y].set_event("")
-		board_events.erase(extra_innings_pos)
-	extra_innings_pos = Vector2i(-1, -1)
+func _expire_overtime() -> void:
+	if overtime_pos != Vector2i(-1, -1):
+		grid[overtime_pos.x][overtime_pos.y].set_event("")
+		board_events.erase(overtime_pos)
+	overtime_pos = Vector2i(-1, -1)
 
 
 ## Called when the golden ball is caught in a match — it doesn't clear, it
@@ -1041,8 +1042,8 @@ func _relocate_golden_ball() -> void:
 
 ## Returns {"positions": {Vector2i: true}, "runs": [{"length", "orientation",
 ## "cells"}, ...]}. positions is every unique tile to clear this step; runs
-## keeps each straight segment's shape so a Double (4-run) knows which
-## orientation of All-Star tile to spawn, and a Triple (two 3-runs landing at
+## keeps each straight segment's shape so a First Down (4-run) knows which
+## orientation of All-Star tile to spawn, and a Big Gain (two 3-runs landing at
 ## once — an L/T-shaped match, or two unrelated 3-runs clearing together) can
 ## find where they cross for the area-blast spawn point.
 func _find_matches() -> Dictionary:
@@ -1085,21 +1086,22 @@ func _make_run(run_len: int, orientation: String, start_x: int, start_y: int, po
 	return {"length": run_len, "orientation": orientation, "cells": cells}
 
 
-## Resolves one move's full cascade. Each step's event tier (Double/Triple/
-## Home Run) is decided from the run segments found, not per-tile count, so
-## a Triple specifically means "two 3-runs landed at once". A Double spawns
-## a line-blast All-Star tile (oriented like the match); a Triple spawns an
-## area-blast one at the runs' crossing point; a Home Run (5+) spawns an MVP
-## Ball (color bomb). Any All-Star tile caught in `positions` (from a normal
-## match, direct swap-activation, or another special's blast) detonates and
-## expands the clear area before scoring, so the existing score formula
-## scales automatically with the bigger clear. `forced_label` overrides the
-## first step's callout — used for a color bomb's own activation, which is
-## a bigger event than whatever ordinary tier it happens to coincide with.
-## If a Home Run, Grand Slam Rally, or MVP Blast is what newly pushes the
-## score past the opponent's current live score, that's a Walk-off Win and
+## Resolves one move's full cascade. Each step's event tier (First Down/Big
+## Gain/Touchdown) is decided from the run segments found, not per-tile
+## count, so a Big Gain specifically means "two 3-runs landed at once". A
+## First Down spawns a line-blast All-Star tile (oriented like the match); a
+## Big Gain spawns an area-blast one at the runs' crossing point; a Touchdown
+## (5+) spawns an MVP Ball (color bomb). Any All-Star tile caught in
+## `positions` (from a normal match, direct swap-activation, or another
+## special's blast) detonates and expands the clear area before scoring, so
+## the existing score formula scales automatically with the bigger clear.
+## `forced_label` overrides the first step's callout — used for a color bomb's
+## own activation, which is a bigger event than whatever ordinary tier it
+## happens to coincide with. If a Touchdown, Hail Mary Rally, or MVP Blast
+## is what newly pushes the score past the opponent's current live score,
+## that's a Game Winner and
 ## ends the game immediately instead of continuing to chain further.
-func _resolve_matches(match_data: Dictionary, forced_label: String = "", hitting_streak_multiplier: float = 1.0) -> void:
+func _resolve_matches(match_data: Dictionary, forced_label: String = "", completion_streak_multiplier: float = 1.0) -> void:
 	var chain_count := 1
 
 	while not match_data.positions.is_empty():
@@ -1109,30 +1111,30 @@ func _resolve_matches(match_data: Dictionary, forced_label: String = "", hitting
 		var detonated := _expand_special_detonations(positions)
 
 		# Board-event tiles caught in this step: golden earns a bonus and
-		# persists (relocating instead of clearing); error/extra-innings
+		# persists (relocating instead of clearing); fumble/overtime
 		# fire their effect and clear normally along with everything else.
 		var golden_in_step: bool = golden_pos != Vector2i(-1, -1) and positions.has(golden_pos)
-		var extra_innings_in_step: bool = extra_innings_pos != Vector2i(-1, -1) and positions.has(extra_innings_pos)
-		var error_hits: Array = []
+		var overtime_in_step: bool = overtime_pos != Vector2i(-1, -1) and positions.has(overtime_pos)
+		var fumble_hits: Array = []
 		for pos in positions.keys():
-			if board_events.get(pos, "") == "error":
-				error_hits.append(pos)
+			if board_events.get(pos, "") == "fumble":
+				fumble_hits.append(pos)
 		if golden_in_step:
 			golden_ball_catches_this_game += 1
-		error_tiles_matched_this_game += error_hits.size()
+		fumble_tiles_matched_this_game += fumble_hits.size()
 
 		var max_run := 0
-		var home_run_run = null
-		var double_run = null
-		var triple_runs: Array = []
+		var touchdown_run = null
+		var first_down_run = null
+		var big_gain_runs: Array = []
 		for run in runs:
 			max_run = max(max_run, run.length)
-			if run.length >= 5 and home_run_run == null:
-				home_run_run = run
-			elif run.length == 4 and double_run == null:
-				double_run = run
+			if run.length >= 5 and touchdown_run == null:
+				touchdown_run = run
+			elif run.length == 4 and first_down_run == null:
+				first_down_run = run
 			elif run.length == 3:
-				triple_runs.append(run)
+				big_gain_runs.append(run)
 
 		var tier_multiplier := 1
 		var event_label := ""
@@ -1141,21 +1143,21 @@ func _resolve_matches(match_data: Dictionary, forced_label: String = "", hitting
 
 		if max_run >= 5:
 			tier_multiplier = 4
-			event_label = "HOME RUN!"
-			if home_run_run != null:
-				spawn_pos = home_run_run.cells[home_run_run.cells.size() / 2]
+			event_label = "TOUCHDOWN!"
+			if touchdown_run != null:
+				spawn_pos = touchdown_run.cells[touchdown_run.cells.size() / 2]
 				spawn_special = "color_bomb"
-		elif double_run != null:
+		elif first_down_run != null:
 			tier_multiplier = 2
-			event_label = "DOUBLE!"
+			event_label = "FIRST DOWN!"
 			if randf() < SPECIAL_TILE_SPAWN_CHANCE:
-				spawn_pos = double_run.cells[double_run.cells.size() / 2]
-				spawn_special = "row" if double_run.orientation == "h" else "col"
-		elif triple_runs.size() >= 2:
+				spawn_pos = first_down_run.cells[first_down_run.cells.size() / 2]
+				spawn_special = "row" if first_down_run.orientation == "h" else "col"
+		elif big_gain_runs.size() >= 2:
 			tier_multiplier = 3
-			event_label = "TRIPLE!"
+			event_label = "BIG GAIN!"
 			if randf() < SPECIAL_TILE_SPAWN_CHANCE:
-				spawn_pos = _pick_triple_spawn(triple_runs[0], triple_runs[1])
+				spawn_pos = _pick_triple_spawn(big_gain_runs[0], big_gain_runs[1])
 				spawn_special = "area"
 		elif chain_count >= 2:
 			event_label = CASCADE_EVENTS[randi() % CASCADE_EVENTS.size()]
@@ -1167,27 +1169,27 @@ func _resolve_matches(match_data: Dictionary, forced_label: String = "", hitting
 			event_label = forced_label
 
 		match event_label:
-			"DOUBLE!": stat_doubles += 1
-			"TRIPLE!": stat_triples += 1
-			"HOME RUN!": stat_home_runs += 1
+			"FIRST DOWN!": stat_first_downs += 1
+			"BIG GAIN!": stat_big_gains += 1
+			"TOUCHDOWN!": stat_touchdowns += 1
 			"MVP BLAST!": stat_mvp_blasts += 1
 		stat_longest_cascade = max(stat_longest_cascade, chain_count)
 
 		# Board-event effects and callout text, appended after the stat
 		# tracking above (which matches event_label against exact tier
 		# strings) so they can't corrupt that comparison.
-		if not error_hits.is_empty():
-			var penalty: int = ERROR_TILE_PENALTY * error_hits.size()
+		if not fumble_hits.is_empty():
+			var penalty: int = FUMBLE_TILE_PENALTY * fumble_hits.size()
 			opponent_score += penalty
-			for pos in error_hits:
+			for pos in fumble_hits:
 				board_events.erase(pos)
-			var error_text := "ERROR! +%d %s" % [penalty, current_team_name]
-			event_label = error_text if event_label == "" else event_label + "  " + error_text
-		if extra_innings_in_step:
-			board_events.erase(extra_innings_pos)
-			extra_innings_pos = Vector2i(-1, -1)
-			extra_innings_earned = true
-			var bonus_text := "EXTRA INNINGS BANKED!"
+			var fumble_text := "FUMBLE! +%d %s" % [penalty, current_team_name]
+			event_label = fumble_text if event_label == "" else event_label + "  " + fumble_text
+		if overtime_in_step:
+			board_events.erase(overtime_pos)
+			overtime_pos = Vector2i(-1, -1)
+			overtime_earned = true
+			var bonus_text := "OVERTIME BANKED!"
 			event_label = bonus_text if event_label == "" else event_label + "  " + bonus_text
 
 		if spawn_pos != null:
@@ -1203,7 +1205,7 @@ func _resolve_matches(match_data: Dictionary, forced_label: String = "", hitting
 		var effective_tile_count: float = positions.size()
 		if golden_in_step:
 			effective_tile_count += GOLDEN_TILE_VALUE_MULTIPLIER
-		var base_points: int = int(BASE_POINTS * effective_tile_count * tier_multiplier * chain_multiplier * hitting_streak_multiplier)
+		var base_points: int = int(BASE_POINTS * effective_tile_count * tier_multiplier * chain_multiplier * completion_streak_multiplier)
 		var rally_active := rally_time_left > 0.0
 		var score_before_step := score
 		score += base_points * (RALLY_MULTIPLIER if rally_active else 1)
@@ -1219,7 +1221,7 @@ func _resolve_matches(match_data: Dictionary, forced_label: String = "", hitting
 		var rally_just_started := false
 		if not rally_active and rally_meter >= RALLY_METER_MAX:
 			rally_just_started = true
-			stat_grand_slams += 1
+			stat_hail_marys += 1
 			await _start_rally()
 
 		var pop_pitch: float = clamp(1.0 + 0.15 * (chain_count - 1) + 0.08 * (tier_multiplier - 1), 1.0, 2.2)
@@ -1238,9 +1240,9 @@ func _resolve_matches(match_data: Dictionary, forced_label: String = "", hitting
 		if golden_in_step:
 			_relocate_golden_ball()
 
-		var is_walkoff_event := event_label == "HOME RUN!" or event_label == "MVP BLAST!" or rally_just_started
-		if is_walkoff_event and opponent_revealed and score_before_step < opponent_score and score >= opponent_score:
-			await _trigger_walkoff()
+		var is_game_winning_event := event_label == "TOUCHDOWN!" or event_label == "MVP BLAST!" or rally_just_started
+		if is_game_winning_event and opponent_revealed and score_before_step < opponent_score and score >= opponent_score:
+			await _trigger_game_winner()
 			return
 
 		match_data = _find_matches()
@@ -1305,9 +1307,9 @@ func _expand_special_detonations(positions: Dictionary) -> bool:
 ## announcement itself doesn't eat into the 10s multiplier window.
 func _start_rally() -> void:
 	is_paused = true
-	walkoff_label.visible = false
+	game_winner_label.visible = false
 	rally_announce_label.visible = true
-	rally_announce_label.text = "GRAND SLAM!\nRALLY TIME!"
+	rally_announce_label.text = "HAIL MARY!\nRALLY TIME!"
 	rally_announcement.visible = true
 	_spawn_fireworks()
 	_play_rally_fanfare()
@@ -1324,43 +1326,43 @@ func _start_rally() -> void:
 	rally_status_label.text = "RALLY! x%d (%ds)" % [RALLY_MULTIPLIER, int(RALLY_DURATION)]
 
 
-## A Home Run, Grand Slam Rally, or MVP Blast that newly pushes the score
-## past the opponent's live score ends the game on the spot — a real walk-off
-## doesn't wait out the rest of the clock. Bigger, slower spectacle than a
+## A Touchdown, Hail Mary Rally, or MVP Blast that newly pushes the score
+## past the opponent's live score ends the game on the spot — a real game
+## winner doesn't wait out the rest of the clock. Bigger, slower spectacle than a
 ## regular Rally announcement: a couple of fireworks bursts play out in slow
 ## motion (global time_scale dropped for a fixed real-world duration) before
 ## handing off to the normal end-game screen.
-func _trigger_walkoff() -> void:
+func _trigger_game_winner() -> void:
 	is_paused = true
 	game_over = true
 	_hide_powerup_buttons()
-	had_walkoff_this_game = true
-	walkoff_time_left_at_trigger = time_left
+	had_game_winner_this_game = true
+	game_winner_time_left_at_trigger = time_left
 
 	# Record the result now, before the celebration — not after it. The
 	# celebration is a good ~4 real seconds (deliberately unaffected by the
 	# bot/slow-mo time scale); gating the season save behind it meant a
 	# closed app (or, in testing, code that treats game_over as "fully
-	# concluded") could lose a Walk-off win that never actually got saved.
+	# concluded") could lose a Game Winner that never actually got saved.
 	var did_win := score >= opponent_score
 	var stage_before: String = SeasonManager.stage
 	var stage_after: String = _record_result(did_win)
 
 	rally_announce_label.visible = false
-	walkoff_label.visible = true
-	walkoff_label.text = "WALK-OFF WIN!"
+	game_winner_label.visible = true
+	game_winner_label.text = "GAME WINNER!"
 	rally_announcement.visible = true
 
-	Engine.time_scale = WALKOFF_SLOWMO_SCALE
+	Engine.time_scale = GAME_WINNER_SLOWMO_SCALE
 	_spawn_fireworks()
 	_spawn_fireworks()
 	_play_rally_fanfare()
 
-	await get_tree().create_timer(WALKOFF_CELEBRATION_SECONDS, true, false, true).timeout
+	await get_tree().create_timer(GAME_WINNER_CELEBRATION_SECONDS, true, false, true).timeout
 
 	Engine.time_scale = 1.0
 	rally_announcement.visible = false
-	walkoff_label.visible = false
+	game_winner_label.visible = false
 	is_paused = false
 	await _show_result_screen(stage_before, stage_after, did_win)
 
@@ -1529,7 +1531,7 @@ func _reshuffle_board() -> void:
 	# match rather than leave it pointing at cells that no longer carry one.
 	board_events.clear()
 	golden_pos = Vector2i(-1, -1)
-	extra_innings_pos = Vector2i(-1, -1)
+	overtime_pos = Vector2i(-1, -1)
 	await get_tree().create_timer(0.5).timeout
 	is_paused = false
 
@@ -1556,5 +1558,5 @@ func _apply_gravity(cleared: Dictionary) -> void:
 			board_events.erase(fresh_pos)
 			if golden_pos == fresh_pos:
 				golden_pos = Vector2i(-1, -1)
-			if extra_innings_pos == fresh_pos:
-				extra_innings_pos = Vector2i(-1, -1)
+			if overtime_pos == fresh_pos:
+				overtime_pos = Vector2i(-1, -1)
